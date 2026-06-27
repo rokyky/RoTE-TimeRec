@@ -1,11 +1,11 @@
-"""TiSASRec + RoTE: Time Interval Aware Self-Attention with rotary time embeddings.
+"""TiSASRec + RoTE：带旋转时间嵌入的时间间隔感知自注意力。
 
-Extends TiSASRec by optionally adding RoTE multi-granularity time embeddings
-alongside the relative time interval bias. Supports ablation of each component.
+通过可选地添加 RoTE 多粒度时间嵌入来扩展 TiSASRec，
+以及相对时间间隔偏置。支持各组件的消融实验。
 
-When timestamps is None, behaves like regular TiSASRec (only uses time_deltas).
-When use_relative_bias=False, disables the TiSASRec time interval bias.
-When use_rote=False, disables the RoTE time embeddings.
+当 timestamps 为 None 时，行为与标准 TiSASRec 相同（仅使用 time_deltas）。
+当 use_relative_bias=False 时，禁用 TiSASRec 时间间隔偏置。
+当 use_rote=False 时，禁用 RoTE 时间嵌入。
 """
 
 import math
@@ -22,23 +22,23 @@ from .rote import RoTEEncoder
 
 
 class TiSASRecRoTE(nn.Module):
-    """TiSASRec with optional RoTE multi-granularity time embeddings.
+    """带可选 RoTE 多粒度时间嵌入的 TiSASRec。
 
-    Supports ablation by toggling relative time bias and RoTE independently,
-    allowing analysis of their complementarity.
+    支持通过独立切换相对时间偏置和 RoTE 进行消融，
+    便于分析两者的互补性。
 
-    Args:
-        num_items: Number of items (plus padding index 0).
-        hidden_dim: Model dimension.
-        num_layers: Number of transformer layers.
-        num_heads: Number of attention heads (kept for API compat).
-        dropout: Dropout rate.
-        max_len: Maximum sequence length.
-        time_bucket_defs: Hour thresholds for discretizing time deltas.
-        rote_granularities: List of granularity names for RoTE.
-        rote_theta_base: Base for RoTE frequency computation.
-        use_relative_bias: Whether to use TiSASRec time interval bias.
-        use_rote: Whether to use RoTE time embeddings.
+    参数：
+        num_items: 物品数量（不含填充索引 0）。
+        hidden_dim: 模型维度。
+        num_layers: Transformer 层数。
+        num_heads: 注意力头数（保持以兼容 API）。
+        dropout: Dropout 率。
+        max_len: 最大序列长度。
+        time_bucket_defs: 时间差离散化的小时阈值。
+        rote_granularities: RoTE 粒度名称列表。
+        rote_theta_base: RoTE 频率计算基数。
+        use_relative_bias: 是否使用 TiSASRec 时间间隔偏置。
+        use_rote: 是否使用 RoTE 时间嵌入。
     """
 
     def __init__(
@@ -115,17 +115,17 @@ class TiSASRecRoTE(nn.Module):
                 module.bias.data.zero_()
 
     def forward(self, seqs, positions, time_deltas, timestamps=None):
-        """Forward pass.
+        """前向传播。
 
-        Args:
-            seqs: (batch, max_len) LongTensor, item indices.
-            positions: (batch, max_len) LongTensor, position indices.
-            time_deltas: (batch, max_len, max_len) FloatTensor, pairwise time diffs.
-            timestamps: (batch, max_len) float tensor of Unix timestamps, or None.
-                        When None, RoTE is skipped (if enabled).
+        参数：
+            seqs: (batch, max_len) LongTensor 类型，物品索引。
+            positions: (batch, max_len) LongTensor 类型，位置索引。
+            time_deltas: (batch, max_len, max_len) FloatTensor 类型，成对时间差。
+            timestamps: (batch, max_len) 浮点张量的 Unix 时间戳，或 None。
+                        若为 None，则跳过 RoTE（如果启用）。
 
-        Returns:
-            scores: (batch, num_items) prediction scores.
+        返回：
+            scores: (batch, num_items) 预测得分。
         """
         device = seqs.device
         batch_size, seq_len = seqs.shape
@@ -134,7 +134,7 @@ class TiSASRecRoTE(nn.Module):
         pos_emb = self.pos_emb(positions)
         x = item_emb + pos_emb
 
-        # Add RoTE time embeddings if enabled and timestamps provided
+        # 如果启用且提供了时间戳，添加 RoTE 时间嵌入
         if self.use_rote and timestamps is not None:
             timestamps = timestamps.to(device=device, dtype=item_emb.dtype)
             rote_emb = self.rote_encoder(timestamps)
@@ -143,7 +143,7 @@ class TiSASRecRoTE(nn.Module):
 
         x = self.dropout(x)
 
-        # Discretize time deltas for relative bias (if enabled)
+        # 如果启用，对相对偏置的时间差进行离散化
         if self.use_relative_bias:
             time_bucket_idxs = discretize_time_delta(
                 time_deltas, self.time_bucket_defs
@@ -165,7 +165,7 @@ class TiSASRecRoTE(nn.Module):
 
             attn = torch.matmul(q, k.transpose(1, 2)) / math.sqrt(self.hidden_dim)
 
-            # Add relative time bias (TiSASRec style) if enabled
+            # 如果启用，添加相对时间偏置（TiSASRec 风格）
             if self.use_relative_bias:
                 time_bias = self.time_bias(time_bucket_idxs).squeeze(-1)
                 attn = attn + time_bias

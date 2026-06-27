@@ -1,7 +1,7 @@
-"""SASRec + RoTE: Self-Attention with multi-granularity rotary time embeddings.
+"""SASRec + RoTE：带多粒度旋转时间嵌入的自注意力。
 
-Extends SASRec by adding RoTE time embeddings to the item+position
-representation. When timestamps are not provided, degrades to regular SASRec.
+通过将 RoTE 时间嵌入添加到物品+位置表示来扩展 SASRec。
+当未提供时间戳时，退化为标准 SASRec。
 """
 
 import math
@@ -16,20 +16,20 @@ from .rote import RoTEEncoder
 
 
 class SASRecRoTE(nn.Module):
-    """SASRec with RoTE multi-granularity time embeddings.
+    """带 RoTE 多粒度时间嵌入的 SASRec。
 
-    Adds rotary time embeddings to the item+position sum before the
-    attention layers. When timestamps is None, behaves exactly like SASRec.
+    在注意力层之前，将旋转时间嵌入添加到物品+位置求和中。
+    当 timestamps 为 None 时，行为与 SASRec 完全相同。
 
-    Args:
-        num_items: Number of items (plus padding index 0).
-        hidden_dim: Model dimension.
-        num_layers: Number of transformer layers.
-        num_heads: Number of attention heads (currently 1, kept for API compat).
-        dropout: Dropout rate.
-        max_len: Maximum sequence length.
-        rote_granularities: List of granularity names for RoTE.
-        rote_theta_base: Base for RoTE frequency computation.
+    参数：
+        num_items: 物品数量（不含填充索引 0）。
+        hidden_dim: 模型维度。
+        num_layers: Transformer 层数。
+        num_heads: 注意力头数（当前为 1，保留以兼容 API）。
+        dropout: Dropout 率。
+        max_len: 最大序列长度。
+        rote_granularities: RoTE 粒度名称列表。
+        rote_theta_base: RoTE 频率计算基数。
     """
 
     def __init__(
@@ -97,16 +97,16 @@ class SASRecRoTE(nn.Module):
                 module.bias.data.zero_()
 
     def forward(self, seqs, positions, timestamps=None):
-        """Forward pass.
+        """前向传播。
 
-        Args:
-            seqs: (batch, max_len) LongTensor, item indices.
-            positions: (batch, max_len) LongTensor, position indices.
-            timestamps: (batch, max_len) float tensor of Unix timestamps, or None.
-                        When None, behaves like regular SASRec.
+        参数：
+            seqs: (batch, max_len) LongTensor 类型，物品索引。
+            positions: (batch, max_len) LongTensor 类型，位置索引。
+            timestamps: (batch, max_len) 浮点张量的 Unix 时间戳，或 None。
+                        若为 None，行为与标准 SASRec 相同。
 
-        Returns:
-            scores: (batch, num_items) prediction scores.
+        返回：
+            scores: (batch, num_items) 预测得分。
         """
         device = seqs.device
         batch_size, seq_len = seqs.shape
@@ -115,7 +115,7 @@ class SASRecRoTE(nn.Module):
         pos_emb = self.pos_emb(positions)
         x = item_emb + pos_emb
 
-        # Add RoTE time embeddings if timestamps are provided
+        # 如果提供了时间戳，添加 RoTE 时间嵌入
         if timestamps is not None:
             timestamps = timestamps.to(device=device, dtype=item_emb.dtype)
             rote_emb = self.rote_encoder(timestamps)  # (B, L, D)

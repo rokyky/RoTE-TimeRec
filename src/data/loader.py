@@ -1,8 +1,8 @@
-'''Data loading and preprocessing module.
+'''数据加载与预处理模块。
 
-Reference:
-    - RecBole data processing pipeline
-    - Sequential dataset with negative sampling
+参考：
+    - RecBole 数据处理管线
+    - 带负采样的序列数据集
 '''
 
 import random
@@ -16,11 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 class SeqRecDataset(Dataset):
-    '''Training dataset with optional timestamp support for RoTE models.
+    '''带可选时间戳支持的训练数据集，适用于 RoTE 模型。
 
-    When timestamps are provided, __getitem__ returns 5-element tuples:
+    当提供时间戳时，__getitem__ 返回 5 元素元组：
         (hist, pos, target, uid, ts_hist)
-    Otherwise returns 4-element tuples for backward compatibility:
+    否则返回 4 元素元组以保持向后兼容：
         (hist, pos, target, uid)
     '''
 
@@ -59,26 +59,26 @@ class SeqRecDataset(Dataset):
             torch.tensor(uid, dtype=torch.long),
         ]
 
-        # Append raw timestamps if available (for RoTE models)
+        # 如果可用，追加原始时间戳（用于 RoTE 模型）
         if self.has_timestamps:
             ts_all = self.timestamps.get(uid, [])
-            # Align timestamps with history prefix
+            # 将时间戳与历史前缀对齐
             hist_len = min(len(hist) - pad_len, len(ts_all))
             ts_hist = [0.0] * pad_len
             for j in range(hist_len):
                 ts_hist.append(ts_all[j] if j < len(ts_all) else 0.0)
-            ts_hist = ts_hist[-self.max_len:]  # ensure exact length
+            ts_hist = ts_hist[-self.max_len:]  # 确保精确长度
             result.append(torch.tensor(ts_hist, dtype=torch.float))
 
         return tuple(result)
 
 
 class EvalDataset(Dataset):
-    '''Evaluation dataset with optional timestamp and category support.
+    '''带可选时间戳和类目支持的评估数据集。
 
-    When timestamps and item_categories are provided, __getitem__ returns
-    6-element tuples: (hist, pos, target, uid, time_deltas, same_cat_mask).
-    Otherwise returns 4-element tuples for backward compatibility.
+    当提供时间戳和 item_categories 时，__getitem__ 返回
+    6 元素元组：(hist, pos, target, uid, time_deltas, same_cat_mask)。
+    否则返回 4 元素元组以保持向后兼容。
     '''
 
     def __init__(self,
@@ -118,10 +118,10 @@ class EvalDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple:
         uid = self.users[idx]
         seq = self.sequences[uid]
-        hist = seq[:-1]          # all but last as history
-        target = seq[-1]         # last as target
+        hist = seq[:-1]          # 除了最后一个，其余作为历史
+        target = seq[-1]         # 最后一个作为目标
 
-        # Truncate and pad history
+        # 截断和填充历史
         hist_items = hist[-self.max_len:]
         pad_len = self.max_len - len(hist_items)
         hist_padded = [0] * pad_len + hist_items
@@ -134,13 +134,13 @@ class EvalDataset(Dataset):
             torch.tensor(uid, dtype=torch.long),
         ]
 
-        # Build time_deltas matrix if timestamps available
+        # 如果时间戳可用，构建 time_deltas 矩阵
         if self.has_timestamps:
             ts = self.timestamps.get(uid, [])
-            # Align timestamps with history items (before padding)
+            # 将时间戳与历史物品对齐（填充前）
             if len(ts) >= len(hist):
-                ts_hist = ts[:len(hist)][-self.max_len:]  # last max_len items
-                ts_hist = [0.0] * pad_len + ts_hist       # pad front
+                ts_hist = ts[:len(hist)][-self.max_len:]  # 取最后 max_len 个物品
+                ts_hist = [0.0] * pad_len + ts_hist       # 前面填充
             else:
                 ts_hist = [0.0] * self.max_len
 
@@ -151,18 +151,18 @@ class EvalDataset(Dataset):
                     td[i, j] = abs(ts_hist[i] - ts_hist[j])
             result.append(td)
 
-            # RoTE variants need raw timestamps; keep it opt-in so the
-            # historical EvalDataset tuple shape remains stable by default.
+            # RoTE 变体需要原始时间戳；保持 opt-in 方式，以便
+            # 历史 EvalDataset 元组形状在默认情况下保持稳定。
             if self.return_timestamps:
                 result.append(torch.tensor(ts_hist, dtype=torch.float32))
 
-        # Build same_cat_mask if categories available
+        # 如果类目可用，构建 same_cat_mask
         if self.has_categories:
-            # Get category for each history item
+            # 获取每个历史物品的类目
             cat_hist = []
             for item in hist_items:
                 cat_hist.append(self.item_categories.get(item, -1))
-            cat_hist = [-1] * pad_len + cat_hist  # pad front with -1 (no-match)
+            cat_hist = [-1] * pad_len + cat_hist  # 前面用 -1（不匹配）填充
 
             L = self.max_len
             scm = torch.zeros(L, L, dtype=torch.bool)

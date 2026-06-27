@@ -74,6 +74,31 @@ RoTE-TimeRec 是三项目矩阵里的传统序列推荐主项目：
 - bootstrap 置信区间
 - 平均延迟 / p95 延迟 / 显存占用
 
+## 当前边界与必须补的实验
+
+当前代码层面已经形成 RoTE 时间建模、split audit、hard-slice 和 runtime 观测闭环；真正的风险不在“能不能跑”，而在真实数据实验是否足够可信。
+
+### 已解决的代码级风险
+
+- 5 种模型变体可以通过统一 `model_eval` 路由评估。
+- 4 种 split protocol 可以产出带 timestamp 的样本。
+- full-ranking 默认排除 padding item，并支持排除训练集已交互 item。
+- split audit 会检查 target leakage，并输出 aggregate / slice / runtime 结果。
+
+### 当前实验硬伤
+
+- README 中的结果表如果仍是占位，不能在面试里当作有效结论。
+- 必须在 Amazon Beauty / Sports / Toys 等真实数据上跑出主结果表。
+- 必须做完整消融：`sasrec`、`tisasrec`、`tisasrec_cat`、`sasrec_rote`、`tisasrec_rote`。
+- 必须报告 RoTE 在 short-history、long-gap、category-switch、long-tail 等切片上的收益，否则很难说明 RoTE 不是普通 time embedding。
+- 必须固定 seed、split protocol 和评估脚本，避免指标来自随机切分或 SSS 协议偏差。
+
+### 面试叙事边界
+
+推荐表述：这是一个“时间建模 + 可信离线评测闭环”的序列推荐项目。RoTE 是可插拔时间模块，重点不是宣称全面超越所有时间模型，而是验证多粒度绝对时间信息与 TiSASRec 相对时间 bias 是否互补。
+
+不推荐表述：不要说已经在真实工业流量上验证，也不要把 synthetic smoke 的指标当作主实验结论。
+
 ## 当前 OpenSpec
 
 ```text
