@@ -145,7 +145,7 @@ def main():
     # 按用户切分 train/val
     split = int(len(sequences) * 0.8)
     users = list(sequences.keys())
-    random.shuffle(users)
+    random.shuffle(users) # 随机打乱用户列表
     train_seq = {u: sequences[u] for u in users[:split]}
     val_seq = {u: sequences[u] for u in users[split:]}
     train_timestamps = {u: timestamps_dict[u] for u in users[:split]}

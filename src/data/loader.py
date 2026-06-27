@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Tuple
 import torch
 from torch.utils.data import Dataset, DataLoader
 
+from src.data.split_protocols import _drop_target_from_history
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,17 +41,22 @@ class SeqRecDataset(Dataset):
         self.has_timestamps = bool(self.timestamps)
         self.samples = []
         for uid, seq in sequences.items():
+            ts_list = self.timestamps.get(uid, None) if self.has_timestamps else None
             for i in range(1, len(seq)):
-                self.samples.append((uid, seq[:i], seq[i]))
+                history = seq[:i]
+                target = seq[i]
+                ts_history = ts_list[:i] if ts_list is not None and len(ts_list) >= i else None
+                history, ts_history = _drop_target_from_history(history, ts_history, target)
+                self.samples.append((uid, history, target, ts_history))
 
     def __len__(self) -> int:
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> Tuple:
-        uid, hist, target = self.samples[idx]
-        hist = hist[-self.max_len:]
-        pad_len = self.max_len - len(hist)
-        hist = [0] * pad_len + hist
+        uid, hist, target, ts_hist = self.samples[idx]
+        hist_items = hist[-self.max_len:]
+        pad_len = self.max_len - len(hist_items)
+        hist = [0] * pad_len + hist_items
         pos = list(range(0, len(hist)))
 
         result = [
@@ -61,14 +68,12 @@ class SeqRecDataset(Dataset):
 
         # 如果可用，追加原始时间戳（用于 RoTE 模型）
         if self.has_timestamps:
-            ts_all = self.timestamps.get(uid, [])
-            # 将时间戳与历史前缀对齐
-            hist_len = min(len(hist) - pad_len, len(ts_all))
-            ts_hist = [0.0] * pad_len
-            for j in range(hist_len):
-                ts_hist.append(ts_all[j] if j < len(ts_all) else 0.0)
-            ts_hist = ts_hist[-self.max_len:]  # 确保精确长度
-            result.append(torch.tensor(ts_hist, dtype=torch.float))
+            if ts_hist is not None:
+                ts_items = ts_hist[-self.max_len:]
+                ts_padded = [0.0] * (self.max_len - len(ts_items)) + ts_items
+            else:
+                ts_padded = [0.0] * self.max_len
+            result.append(torch.tensor(ts_padded, dtype=torch.float))
 
         return tuple(result)
 

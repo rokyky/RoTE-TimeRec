@@ -117,7 +117,7 @@ def split_leave_one_out(
         target = seq[-1]
         ts_list = user_timestamps.get(uid, None) if user_timestamps else None
         ts_history = ts_list[:len(seq) - 1] if ts_list is not None and len(ts_list) >= len(seq) else None
-        history, ts_history = _drop_target_from_history(history, ts_history, target)
+        history, ts_history = _drop_target_from_history(history, ts_history, target) # 历史序列里面任何位置都不能有target
 
         # 填充历史
         hist_padded = _pad_sequence(history, max_len, pad_value=0)
@@ -134,11 +134,11 @@ def split_leave_one_out(
         ts_seq = torch.tensor(ts_padded, dtype=torch.float64)
 
         samples.append((
-            item_seq,
-            ts_seq,
-            torch.tensor(target, dtype=torch.long),
-            torch.tensor(target_ts, dtype=torch.float64),
-            torch.tensor(uid, dtype=torch.long),
+            item_seq,  # 历史物品序列
+            ts_seq,   # 历史时间戳序列
+            torch.tensor(target, dtype=torch.long), # 最后一个物品，也就是要预测的答案
+            torch.tensor(target_ts, dtype=torch.float64),  # 最后一个物品的时间戳
+            torch.tensor(uid, dtype=torch.long), # 当前用户ID
         ))
 
     return samples

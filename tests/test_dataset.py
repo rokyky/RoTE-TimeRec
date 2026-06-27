@@ -58,6 +58,27 @@ class TestSeqRecDataset:
                 # target 应该在序列中
                 assert target.item() in seq
 
+    def test_repeated_target_is_removed_from_history(self):
+        seqs = {0: [10, 20, 30, 20]}
+        ds = SeqRecDataset(seqs, max_len=10, num_items=100)
+
+        hist, pos, target, uid = ds[2]
+
+        assert target.item() == 20
+        assert hist[hist != 0].tolist() == [10, 30]
+        assert target.item() not in hist.tolist()
+
+    def test_repeated_target_removal_keeps_timestamps_aligned(self):
+        seqs = {0: [10, 20, 30, 20]}
+        timestamps = {0: [100.0, 200.0, 300.0, 400.0]}
+        ds = SeqRecDataset(seqs, max_len=5, num_items=100, timestamps=timestamps)
+
+        hist, pos, target, uid, ts_hist = ds[2]
+
+        assert target.item() == 20
+        assert hist[hist != 0].tolist() == [10, 30]
+        assert ts_hist[hist != 0].tolist() == [100.0, 300.0]
+
     def test_sample_count(self):
         '''样本数 = sum(len(seq)-1 for all users)。'''
         seqs = _make_sequences()

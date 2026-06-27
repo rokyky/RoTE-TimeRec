@@ -147,7 +147,7 @@ class TestPrefixTargetSSS:
             split_prefix_target_sss({0: [1, 2, 3]}, prefix_min_len=0)
 
     def test_history_before_target(self):
-        """所有历史物品应在原始序列中出现在目标之前。""""
+        """所有历史物品应在原始序列中出现在目标之前。"""
         seqs = {0: list(range(1, 11))}
         samples = split_prefix_target_sss(seqs, max_len=20, prefix_min_len=2)
         for sample in samples:

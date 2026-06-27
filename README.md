@@ -112,16 +112,21 @@ openspec/changes/rote-timerec-sss-audit/
 ```bash
 pip install torch numpy scipy pyyaml
 
-# 训练基线模型
+# Debug / smoke test：默认 leave_one_out，跑得快，但每用户通常只有 1 条训练样本
 python scripts/train_model.py --model sasrec --epochs 3
 
-# 训练 RoTE 变体
-python scripts/train_model.py --model sasrec_rote --epochs 3
-python scripts/train_model.py --model tisasrec_rote --epochs 3
-
-# 使用不同 split 协议训练
-python scripts/train_model.py --model sasrec --split sliding_window_sss --epochs 3
+# 正式主实验：训练 split 推荐使用 prefix_target_sss，样本量更充分
 python scripts/train_model.py --model sasrec --split prefix_target_sss --epochs 3
+python scripts/train_model.py --model tisasrec --split prefix_target_sss --epochs 3
+python scripts/train_model.py --model tisasrec_cat --split prefix_target_sss --epochs 3
+python scripts/train_model.py --model sasrec_rote --split prefix_target_sss --epochs 3
+python scripts/train_model.py --model tisasrec_rote --split prefix_target_sss --epochs 3
+
+# Split 消融：只选 1 个代表模型跑四种 split，看训练样本构造对指标的影响
+python scripts/train_model.py --model tisasrec_rote --split leave_one_out --epochs 3
+python scripts/train_model.py --model tisasrec_rote --split no_sss --epochs 3
+python scripts/train_model.py --model tisasrec_rote --split sliding_window_sss --epochs 3
+python scripts/train_model.py --model tisasrec_rote --split prefix_target_sss --epochs 3
 
 # 运行多阶段召回-排序管道
 python scripts/run_pipeline.py
@@ -199,6 +204,24 @@ TiSASRec + RoTE 支持消融开关（`configs/default.yaml`）：
 | `no_sss` | 每用户一条序列，不做子序列扩增 | — |
 | `sliding_window_sss` | 滑窗构造多条训练样本 | `sliding_window_size` |
 | `prefix_target_sss` | 多个 prefix-target 训练样本 | `prefix_min_len` |
+
+#### 训练 split 与评估协议的口径
+
+`configs/default.yaml` 里默认是 `leave_one_out`，这是为了 demo、debug、smoke test 跑得快，不代表正式实验推荐这样训练。`leave_one_out` 通常每个用户只产生 1 条训练样本，样本量偏小，容易低估模型能力。
+
+正式主实验建议固定训练协议为 `prefix_target_sss`：它把一个用户序列拆成多个“历史前缀 -> 下一个目标”的样本，样本量更充分，尤其适合 Amazon 这类短到中等长度用户序列。主结果表只需要在 `prefix_target_sss` 下比较 `sasrec`、`tisasrec`、`tisasrec_cat`、`sasrec_rote`、`tisasrec_rote`。
+
+四种 split 不需要全部作为主实验跑。推荐分层如下：
+
+| 用途 | 推荐做法 | 说明 |
+|---|---|---|
+| Debug / smoke test | `leave_one_out` | 默认值，最快，只验证代码链路和指标是否正常。 |
+| 主实验训练 | `prefix_target_sss` | 样本量更充分，用来生成主结果表。 |
+| 长序列训练对照 | `sliding_window_sss` | 适合长序列，可作为训练协议消融。 |
+| 负面对照 / audit | `no_sss` | 不做子序列增强，主要用来说明样本量和协议偏差。 |
+| Split 消融 | 只选 1 个代表模型跑四种 split | 例如只用 `tisasrec_rote` 或 `sasrec_rote` 跑 `leave_one_out/no_sss/sliding_window_sss/prefix_target_sss`。 |
+
+评估协议要固定，不要每个模型用不同口径。推荐最终评估统一使用留一目标和 full-ranking 评估；SSS audit 的作用是暴露不同训练样本构造带来的指标偏差，而不是把四种 split 都当成主结果表。
 
 ## 范围
 
