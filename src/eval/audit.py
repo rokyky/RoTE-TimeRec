@@ -1,12 +1,12 @@
-"""Evaluation audit system for RoTE-TimeRec.
+"""RoTE-TimeRec 评估审计系统。
 
-Provides:
-1. Split protocol audit: compare metrics across split protocols.
-2. Hard-slice evaluation: history length, time gap, popularity, category switch.
-3. Runtime metrics: latency, memory, parameter count.
-4. Result export: aggregate table, slice table, runtime summary, JSON.
+提供：
+1. 切分协议审计：比较各切分协议间的指标。
+2. 困难切片评估：历史长度、时间间隔、流行度、类目切换。
+3. 运行时指标：延迟、内存、参数量。
+4. 结果导出：聚合表、切片表、运行时摘要、JSON。
 
-Usage:
+用法：
     auditor = SplitProtocolAuditor(model, device)
     results = auditor.audit(eval_data, split_protocols=['leave_one_out', 'no_sss'])
     auditor.print_results(results)
@@ -40,54 +40,54 @@ def compute_runtime_metrics(
     num_warmup: int = 5,
     num_runs: int = 50,
 ) -> Dict[str, float]:
-    """Compute average and p95 latency for model forward passes.
+    """计算模型前向传播的平均和 P95 延迟。
 
-    Args:
-        model: The model to benchmark.
-        sample_inputs: Dict of input tensors (keys depend on model type).
-        device: Device to run on.
-        num_warmup: Number of warmup iterations.
-        num_runs: Number of timed iterations.
+    参数：
+        model: 要评测的模型。
+        sample_inputs: 输入张量字典（键取决于模型类型）。
+        device: 运行设备。
+        num_warmup: 预热迭代次数。
+        num_runs: 计时迭代次数。
 
-    Returns:
-        Dict with 'avg_latency_ms', 'p95_latency_ms', 'peak_memory_mb' (or -1),
-        and 'param_count'.
+    返回：
+        包含 'avg_latency_ms', 'p95_latency_ms', 'peak_memory_mb'（或 -1）
+        和 'param_count' 的字典。
     """
     model.eval()
     model.to(device)
 
-    # Move inputs to device. Some callers pass legacy helper keys such as
-    # "model" or "device"; keep the benchmark API tolerant but call
-    # _model_forward with one explicit model/device pair.
+    # 将输入移至设备。某些调用者传递遗留辅助键，如
+    # "model" 或 "device"；保持 benchmark API 的容错性，但
+    # 使用一个显式的 model/device 对调用 _model_forward。
     inputs = {}
     for k, v in sample_inputs.items():
         if k in ('model', 'device'):
             continue
         inputs[k] = v.to(device) if isinstance(v, torch.Tensor) else v
 
-    # Parameter count
+    # 参数量
     param_count = sum(p.numel() for p in model.parameters())
 
-    # Warmup
+    # 预热
     with torch.no_grad():
         for _ in range(num_warmup):
             _ = _model_forward(model, device=device, **inputs)
 
-    # Timed runs
+    # 计时运行
     latencies = []
     with torch.no_grad():
         for _ in range(num_runs):
             start = time.perf_counter()
             _ = _model_forward(model, device=device, **inputs)
             end = time.perf_counter()
-            latencies.append((end - start) * 1000.0)  # ms
+            latencies.append((end - start) * 1000.0)  # 毫秒
 
     avg_latency = sum(latencies) / len(latencies)
     sorted_lats = sorted(latencies)
     p95_idx = int(len(sorted_lats) * 0.95)
     p95_latency = sorted_lats[min(p95_idx, len(sorted_lats) - 1)]
 
-    # Peak GPU memory (if available)
+    # 峰值 GPU 显存（如果可用）
     peak_memory = -1.0
     if device != 'cpu' and torch.cuda.is_available():
         peak_memory = torch.cuda.max_memory_allocated(device) / (1024 ** 2)  # MB
@@ -101,7 +101,7 @@ def compute_runtime_metrics(
 
 
 def _get_history_length(item_sequence: torch.Tensor) -> int:
-    """Count non-padding items in a sequence."""
+    """计算序列中非填充物品的数量。"""
     return (item_sequence != 0).sum().item()
 
 
@@ -109,17 +109,17 @@ def _get_time_gap(
     item_sequence: torch.Tensor,
     timestamp_sequence: torch.Tensor,
 ) -> float:
-    """Get time gap (seconds) between last history item and target.
+    """获取最后一个历史物品与目标之间的时间间隔（秒）。
 
-    The gap is based on the timestamp at the last non-padding position
-    vs the target timestamp (not passed here, so we approximate).
-    Returns the time span within the history itself.
+    间隔基于最后一个非填充位置的时间戳与目标时间戳的对比
+    （此处未传入目标时间戳，因此进行近似计算）。
+    返回历史序列内部的时间跨度。
     """
     non_pad_mask = item_sequence != 0
     if non_pad_mask.sum() < 2:
         return float('inf')
 
-    # Get positions of last two non-padded items
+    # 获取最后两个非填充物品的位置
     indices = non_pad_mask.nonzero(as_tuple=True)[0]
     if len(indices) < 2:
         return float('inf')
@@ -134,7 +134,7 @@ def _get_item_popularity(
     item_id: int,
     item_freq: Optional[Dict[int, int]],
 ) -> int:
-    """Get frequency count for an item."""
+    """获取物品的频次计数。"""
     if item_freq is None:
         return 0
     return item_freq.get(item_id, 0)
@@ -149,25 +149,25 @@ def compute_hard_slice_metrics(
     ks: Optional[List[int]] = None,
     exclude_items: Optional[Set[int]] = None,
 ) -> Dict[str, Dict[str, float]]:
-    """Compute metrics sliced by hard categories.
+    """按困难类别切片计算指标。
 
-    Slices:
-        - history_length: short (bottom 33%) / long (top 33%)
-        - time_gap: short (< 1 day) / long (> 7 days)
-        - item_popularity: head (top 20%) / tail (bottom 50%)
-        - category_switch: same_category / category_switch
+    切片：
+        - history_length: 短历史（底部 33%）/ 长历史（顶部 33%）
+        - time_gap: 短间隔（< 1 天）/ 长间隔（> 7 天）
+        - item_popularity: 头部（顶部 20%）/ 尾部（底部 50%）
+        - category_switch: 同类 / 类目切换
 
-    Args:
-        model: The model to evaluate.
-        samples: List of (item_seq, ts_seq, target_item, target_ts, user_id).
-        device: Torch device.
-        item_freq: Dict of item_id -> interaction count (for popularity).
-        item_categories: Dict of item_id -> category_id.
-        ks: K values for metrics.
-        exclude_items: Items to exclude from ranking.
+    参数：
+        model: 要评估的模型。
+        samples: (item_seq, ts_seq, target_item, target_ts, user_id) 列表。
+        device: Torch 设备。
+        item_freq: item_id -> 交互次数 字典（用于流行度）。
+        item_categories: item_id -> category_id 字典。
+        ks: 指标的 K 值。
+        exclude_items: 要从排序中排除的物品。
 
-    Returns:
-        Nested dict: slice_name -> metric_name -> value.
+    返回：
+        嵌套字典：slice_name -> metric_name -> value。
     """
     if ks is None:
         ks = [1, 5, 10, 20]
@@ -176,10 +176,10 @@ def compute_hard_slice_metrics(
 
     model.eval()
 
-    # Prepare data structures per slice
+    # 按切片准备数据结构
     slice_data = defaultdict(lambda: {'scores': [], 'targets': []})
 
-    # Compute history lengths, gaps, etc for percentile-based splits
+    # 计算历史长度、间隔等，用于百分位数切分
     hist_lengths = []
     gaps = []
     pop_values = []
@@ -192,7 +192,7 @@ def compute_hard_slice_metrics(
         target_item = sample[2].item()
         pop_values.append(_get_item_popularity(target_item, item_freq))
 
-    # Compute thresholds
+    # 计算阈值
     if hist_lengths:
         hist_sorted = sorted(hist_lengths)
         short_thresh = hist_sorted[len(hist_sorted) // 3] if len(hist_sorted) >= 3 else 0
@@ -207,7 +207,7 @@ def compute_hard_slice_metrics(
     else:
         head_thresh, tail_thresh = 1, 0
 
-    # Classify and accumulate samples
+    # 分类和累积样本
     with torch.no_grad():
         for sample in samples:
             item_seq = sample[0].to(device)
@@ -216,19 +216,19 @@ def compute_hard_slice_metrics(
             target_ts = sample[3]
             uid = sample[4]
 
-            # Create position sequence
+            # 创建位置序列
             pos = torch.arange(item_seq.size(0), dtype=torch.long, device=device).unsqueeze(0)
 
-            # Forward pass - need to handle model types
-            # For simplicity, use _model_forward without time_deltas/cat_mask
-            # since samples from split protocols don't have those
+            # 前向传播 - 需要处理模型类型
+            # 为简化起见，使用不带 time_deltas/cat_mask 的 _model_forward
+            # 因为切分协议产生的样本不包含这些
             scores = _model_forward(
                 model, item_seq.unsqueeze(0), pos, device,
                 timestamps=ts_seq.unsqueeze(0) if ts_seq is not None else None,
             )
             target = torch.tensor([target_item.item()], device=device)
 
-            # Apply exclusions
+            # 应用排除
             for eid in exclude_items:
                 if 0 <= eid < scores.size(1):
                     scores[:, eid] = -float('inf')
@@ -237,7 +237,7 @@ def compute_hard_slice_metrics(
             gap = _get_time_gap(item_seq, ts_seq)
             pop = _get_item_popularity(target_item.item(), item_freq)
 
-            # History length slices
+            # 历史长度切片
             if hist_len <= short_thresh:
                 slice_data['short_history']['scores'].append(scores)
                 slice_data['short_history']['targets'].append(target)
@@ -245,15 +245,15 @@ def compute_hard_slice_metrics(
                 slice_data['long_history']['scores'].append(scores)
                 slice_data['long_history']['targets'].append(target)
 
-            # Time gap slices
-            if gap < 86400.0:  # < 1 day
+            # 时间间隔切片
+            if gap < 86400.0:  # < 1 天
                 slice_data['short_gap']['scores'].append(scores)
                 slice_data['short_gap']['targets'].append(target)
-            if gap > 7 * 86400.0:  # > 7 days
+            if gap > 7 * 86400.0:  # > 7 天
                 slice_data['long_gap']['scores'].append(scores)
                 slice_data['long_gap']['targets'].append(target)
 
-            # Item popularity slices
+            # 物品流行度切片
             if pop >= head_thresh:
                 slice_data['head_items']['scores'].append(scores)
                 slice_data['head_items']['targets'].append(target)
@@ -261,10 +261,10 @@ def compute_hard_slice_metrics(
                 slice_data['tail_items']['scores'].append(scores)
                 slice_data['tail_items']['targets'].append(target)
 
-            # Category switch slices
+            # 类目切换切片
             if item_categories is not None:
                 target_cat = item_categories.get(target_item.item(), -1)
-                # Get last history item's category
+                # 获取最后一个历史物品的类目
                 non_pad = item_seq[item_seq != 0]
                 if len(non_pad) > 0:
                     last_hist_item = non_pad[-1].item()
@@ -276,7 +276,7 @@ def compute_hard_slice_metrics(
                         slice_data['category_switch']['scores'].append(scores)
                         slice_data['category_switch']['targets'].append(target)
 
-    # Compute metrics per slice
+    # 按切片计算指标
     results = {}
     for slice_name, data in slice_data.items():
         if not data['scores']:
@@ -292,10 +292,10 @@ def compute_hard_slice_metrics(
 
 
 class SplitProtocolAuditor:
-    """Run evaluation across multiple split protocols and aggregate results.
+    """跨多个切分协议运行评估并聚合结果。
 
-    Compares HR/NDCG/Recall across split protocols and optionally
-    computes hard-slice metrics and runtime benchmarks.
+    比较各切分协议间的 HR/NDCG/Recall，并可选
+    计算困难切片指标和运行时基准。
     """
 
     def __init__(
@@ -320,21 +320,21 @@ class SplitProtocolAuditor:
         compute_hard_slices: bool = True,
         compute_runtime: bool = True,
     ) -> Dict[str, Any]:
-        """Run the full audit.
+        """运行完整审计。
 
-        Args:
-            user_sequences: Dict of user_id -> item sequence.
-            split_protocols: List of protocols to compare. Default: all.
-            user_timestamps: Dict of user_id -> timestamp sequence.
-            item_categories: Dict of item_id -> category_id.
-            item_freq: Dict of item_id -> interaction count.
-            max_len: Max sequence length.
-            exclude_items: Items to exclude (e.g. {0}).
-            compute_hard_slices: Whether to compute hard-slice metrics.
-            compute_runtime: Whether to compute runtime benchmarks.
+        参数：
+            user_sequences: user_id -> 物品序列 的字典。
+            split_protocols: 要比较的协议列表。默认：全部。
+            user_timestamps: user_id -> 时间戳序列 的字典。
+            item_categories: item_id -> category_id 的字典。
+            item_freq: item_id -> 交互次数 的字典。
+            max_len: 最大序列长度。
+            exclude_items: 要排除的物品（例如 {0}）。
+            compute_hard_slices: 是否计算困难切片指标。
+            compute_runtime: 是否计算运行时基准。
 
-        Returns:
-            Dict with 'aggregate', 'slices', 'runtime', 'config' fields.
+        返回：
+            包含 'aggregate', 'slices', 'runtime', 'config' 字段的字典。
         """
         if split_protocols is None:
             split_protocols = ['leave_one_out', 'no_sss', 'sliding_window_sss', 'prefix_target_sss']
@@ -348,7 +348,7 @@ class SplitProtocolAuditor:
         for protocol in split_protocols:
             logger.info("Running audit for protocol: %s", protocol)
 
-            # Generate samples for this protocol
+            # 为此协议生成样本
             kwargs = {}
             if protocol == 'sliding_window_sss':
                 kwargs['window_size'] = 10
@@ -363,7 +363,7 @@ class SplitProtocolAuditor:
                 **kwargs,
             )
 
-            # Check for target leakage
+            # 检查目标泄露
             leakage_count = 0
             for sample in samples:
                 if check_target_leakage(sample[0], sample[2]):
@@ -374,7 +374,7 @@ class SplitProtocolAuditor:
                     protocol, leakage_count, len(samples),
                 )
 
-            # Evaluate
+            # 评估
             with torch.no_grad():
                 all_scores = []
                 all_targets = []
@@ -393,7 +393,7 @@ class SplitProtocolAuditor:
                         timestamps=ts_seq.unsqueeze(0) if ts_seq is not None else None,
                     )
 
-                    # Apply exclusions
+                    # 应用排除
                     for eid in exclude_items:
                         if 0 <= eid < scores.size(1):
                             scores[:, eid] = -float('inf')
@@ -408,7 +408,7 @@ class SplitProtocolAuditor:
                     metrics = evaluate_full_sort(cat_scores, ground_truth, self.ks, exclude_items=None)
                     aggregate[protocol] = metrics
 
-                # Hard-slice metrics (only for leave_one_out, most representative)
+                # 困难切片指标（仅 leave_one_out，最具代表性）
                 if compute_hard_slices and protocol == 'leave_one_out':
                     slice_metrics = compute_hard_slice_metrics(
                         self.model, samples, self.device,
@@ -419,7 +419,7 @@ class SplitProtocolAuditor:
                     )
                     slices[protocol] = slice_metrics
 
-                # Runtime benchmark (only for first protocol to avoid redundancy)
+                # 运行时基准（仅第一个协议以避免冗余）
                 if compute_runtime and protocol == split_protocols[0] and samples:
                     sample = samples[0]
                     sample_inputs = {
@@ -444,12 +444,12 @@ class SplitProtocolAuditor:
         }
 
     def print_results(self, results: Dict[str, Any]) -> None:
-        """Print human-readable audit results."""
+        """打印可读格式的审计结果。"""
         print("\n" + "=" * 70)
         print("RoTE-TimeRec Split Protocol Audit Results")
         print("=" * 70)
 
-        # Aggregate table
+        # 聚合表
         aggregate = results.get('aggregate', {})
         if aggregate:
             print("\n--- Aggregate Metrics ---")
@@ -466,7 +466,7 @@ class SplitProtocolAuditor:
                     row += f"  {r:<12.4f}  {n:<12.4f}"
                 print(row)
 
-        # Hard-slice table
+        # 困难切片表
         slices = results.get('slices', {})
         if slices:
             print("\n--- Hard-Slice Metrics (leave_one_out) ---")
@@ -479,7 +479,7 @@ class SplitProtocolAuditor:
                         row += f"  R@{k}={r:.4f} N@{k}={n:.4f}"
                     print(row)
 
-        # Runtime table
+        # 运行时表
         runtime = results.get('runtime')
         if runtime:
             print("\n--- Runtime Metrics ---")
@@ -491,11 +491,11 @@ class SplitProtocolAuditor:
         print("=" * 70)
 
     def export_json(self, results: Dict[str, Any], path: str) -> None:
-        """Export results to a JSON file.
+        """将结果导出到 JSON 文件。
 
-        Args:
-            results: Dict from audit().
-            path: Output JSON file path.
+        参数：
+            results: audit() 返回的字典。
+            path: 输出 JSON 文件路径。
         """
         def _convert(obj):
             if isinstance(obj, (float,)):
@@ -512,20 +512,20 @@ class SplitProtocolAuditor:
         logger.info("Results exported to %s", path)
 
     def export_tables(self, results: Dict[str, Any], prefix: str = 'audit_results') -> Dict[str, str]:
-        """Export results as formatted tables.
+        """将结果导出为格式化表格。
 
-        Args:
-            results: Dict from audit().
-            prefix: File path prefix for outputs.
+        参数：
+            results: audit() 返回的字典。
+            prefix: 输出的文件路径前缀。
 
-        Returns:
-            Dict of table_type -> file_path.
+        返回：
+            table_type -> file_path 的字典。
         """
         import os
 
         paths = {}
 
-        # Aggregate table
+        # 聚合表
         agg_path = f"{prefix}_aggregate.csv"
         with open(agg_path, 'w') as f:
             header = ['protocol']
@@ -542,7 +542,7 @@ class SplitProtocolAuditor:
         paths['aggregate_csv'] = os.path.abspath(agg_path)
         logger.info("Aggregate table exported to %s", agg_path)
 
-        # Slice table
+        # 切片表
         sl_path = f"{prefix}_slices.csv"
         with open(sl_path, 'w') as f:
             header = ['protocol', 'slice']

@@ -1,8 +1,8 @@
-'''Recall stage: multi-channel recall + fusion.
+'''召回阶段：多路召回 + 融合。
 
-Reference:
+参考：
     - RecBole pop/BPR
-    - EasyRec matching module
+    - EasyRec matching 模块
 '''
 
 from typing import Dict, List
@@ -61,7 +61,7 @@ class ItemCFRecall(PipelineStage):
 
 
 class DSSMRecall(PipelineStage):
-    '''Dual-tower vector recall (stub: needs Faiss integration).'''
+    '''双塔向量召回（存根：需要 Faiss 集成）。'''
 
     def __init__(self, top_k: int = 500):
         super().__init__('recall_dssm')
@@ -72,7 +72,7 @@ class DSSMRecall(PipelineStage):
         self.item_emb = item_emb
 
     def predict(self, candidates: CandidateList, context: dict) -> CandidateList:
-        # Placeholder: would use Faiss MIP search in practice
+        # 占位：实际场景需使用 Faiss MIP 搜索
         result = CandidateList()
         for user_id in candidates.user_ids:
             if user_id not in self.user_emb:

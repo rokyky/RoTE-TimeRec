@@ -1,10 +1,10 @@
-'''Evaluation metrics for sequential recommendation.
+'''序列推荐的评估指标。
 
-Reference:
-    - RecBole full-sort evaluation
+参考：
+    - RecBole 全排序评估
     - Recall@K / NDCG@K / MRR@K
-    - Bucket evaluation for long-tail analysis
-    - Full-ranking with train-interacted item exclusion
+    - 长尾分析的分桶评估
+    - 排除训练已交互物品的全排序
 '''
 
 import math
@@ -42,7 +42,7 @@ def mrr_at_k(ranked, ground_truth, k):
 
 
 def evaluate_full_sort(scores, ground_truth, ks=None, exclude_items=None):
-    '''Full-sort evaluation with optional item exclusion.
+    '''带可选物品排除的全排序评估。
 
     参数：
         scores: (batch, num_items) 预测分数
@@ -56,7 +56,7 @@ def evaluate_full_sort(scores, ground_truth, ks=None, exclude_items=None):
     if ks is None:
         ks = [1, 5, 10, 20]
 
-    # Mask excluded items: set scores to -inf so they never appear in top-K
+    # 掩盖排除的物品：将分数设为 -inf，确保它们不会出现在 top-K 中
     if exclude_items:
         for item_id in exclude_items:
             if 0 <= item_id < scores.size(1):
@@ -87,8 +87,8 @@ def _build_time_deltas_from_hist(hist, item_timestamps, device):
     B, L = hist.shape
     if item_timestamps is None:
         logger.warning(
-            "_build_time_deltas_from_hist: no item_timestamps provided, "
-            "using zero time_deltas. TiSASRec degrades to position-only attention."
+            "_build_time_deltas_from_hist: 未提供 item_timestamps，"
+            "使用零 time_deltas。TiSASRec 退化为仅位置注意力。"
         )
         return torch.zeros(B, L, L, device=device)
 
@@ -117,8 +117,8 @@ def _build_same_cat_mask_from_hist(hist, item_categories, device):
     B, L = hist.shape
     if item_categories is None:
         logger.warning(
-            "_build_same_cat_mask_from_hist: no item_categories provided, "
-            "using all-False same_cat_mask. TiSASRec-Cat degrades to TiSASRec."
+            "_build_same_cat_mask_from_hist: 未提供 item_categories，"
+            "使用全 False same_cat_mask。TiSASRec-Cat 退化为 TiSASRec。"
         )
         return torch.zeros(B, L, L, dtype=torch.bool, device=device)
 
@@ -154,8 +154,8 @@ def _model_forward(model, hist, pos, device,
     if isinstance(model, TiSASRecCat):
         if time_deltas is None:
             logger.warning(
-                "_model_forward: TiSASRecCat received time_deltas=None, "
-                "using zeros. Time-aware attention is disabled."
+                "_model_forward: TiSASRecCat 收到 time_deltas=None，"
+                "使用零值。时间感知注意力已禁用。"
             )
             td = torch.zeros(B, L, L, device=device)
         else:
@@ -163,8 +163,8 @@ def _model_forward(model, hist, pos, device,
 
         if same_cat_mask is None:
             logger.warning(
-                "_model_forward: TiSASRecCat received same_cat_mask=None, "
-                "using all-False mask. Category-conditioned bias is disabled."
+                "_model_forward: TiSASRecCat 收到 same_cat_mask=None，"
+                "使用全 False 掩码。类别条件偏置已禁用。"
             )
             cm = torch.zeros(B, L, L, dtype=torch.bool, device=device)
         else:
@@ -178,8 +178,8 @@ def _model_forward(model, hist, pos, device,
     elif isinstance(model, TiSASRecRoTE):
         if time_deltas is None:
             logger.warning(
-                "_model_forward: TiSASRecRoTE received time_deltas=None, "
-                "using zeros. Time-aware attention is disabled."
+                "_model_forward: TiSASRecRoTE 收到 time_deltas=None，"
+                "使用零值。时间感知注意力已禁用。"
             )
             td = torch.zeros(B, L, L, device=device)
         else:
@@ -191,8 +191,8 @@ def _model_forward(model, hist, pos, device,
     elif isinstance(model, TiSASRec):
         if time_deltas is None:
             logger.warning(
-                "_model_forward: TiSASRec received time_deltas=None, "
-                "using zeros. Time-aware attention is disabled."
+                "_model_forward: TiSASRec 收到 time_deltas=None，"
+                "使用零值。时间感知注意力已禁用。"
             )
             td = torch.zeros(B, L, L, device=device)
         else:
@@ -229,7 +229,7 @@ def model_eval(model, eval_loader, device, ks=None,
     if ks is None:
         ks = [1, 5, 10, 20]
 
-    # Default exclude item 0 (padding) — unless explicitly overridden
+    # 默认排除物品 0（填充）— 除非显式覆盖
     if exclude_items is None:
         exclude_items = {0}
 
@@ -241,7 +241,7 @@ def model_eval(model, eval_loader, device, ks=None,
             hist, pos = batch[0].to(device), batch[1].to(device)
             target = batch[2]
 
-            # Determine time_deltas, same_cat_mask, timestamps from batch or external data
+            # 从 batch 或外部数据确定 time_deltas, same_cat_mask, timestamps
             time_deltas = None
             same_cat_mask = None
             timestamps = None
@@ -254,7 +254,7 @@ def model_eval(model, eval_loader, device, ks=None,
                 elif extra.dim() == 2:
                     timestamps = extra.to(device)
 
-            # If batch doesn't carry these but external data is provided, build them
+            # 如果 batch 不包含这些，但外部数据提供了，则构建它们
             if time_deltas is None and item_timestamps is not None:
                 time_deltas = _build_time_deltas_from_hist(hist, item_timestamps, device)
 
@@ -293,7 +293,7 @@ def evaluate_by_bucket(model, eval_loader, device, bucket_info, ks=None,
 
             scores = _model_forward(model, hist, pos, device)
 
-            # Apply exclusion
+            # 应用排除
             for item_id in exclude_items:
                 if 0 <= item_id < scores.size(1):
                     scores[:, item_id] = -float('inf')

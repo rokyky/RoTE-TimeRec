@@ -1,8 +1,8 @@
-'''Rank stage: sequential model + deep ranking models.
+'''精排阶段：序列模型 + 深度排序模型。
 
-Reference:
-    - DeepCTR-Torch -> DeepFM/DIN implementation
-    - RecBole -> sequential model eval protocol
+参考：
+    - DeepCTR-Torch -> DeepFM/DIN 实现
+    - RecBole -> 序列模型评估协议
 '''
 
 import torch
@@ -12,10 +12,10 @@ from .base import Candidate, CandidateList, PipelineStage
 
 
 class SequenceRanker(PipelineStage):
-    '''TiSASRec-Cat based sequence ranking.
+    '''基于 TiSASRec-Cat 的序列排序。
 
-    Calls the core sequential model (copied from 5.time-aware-seqrec)
-    to score candidate items for each user.
+    调用核心序列模型（复制自 5.time-aware-seqrec）
+    为每个用户对候选物品进行打分。
     '''
 
     def __init__(self, model, keep_k: int = 100):
@@ -44,9 +44,9 @@ class SequenceRanker(PipelineStage):
         return result
 
     def _score_items(self, user_id: int, seq: List[int], items: List[int]) -> List[float]:
-        '''Score candidate items using the sequential model.'''
+        '''使用序列模型对候选物品进行打分。'''
         self.model.eval()
         with torch.no_grad():
-            # simplified: would need proper batch processing in practice
+            # 简化：实际场景需要适当的批处理
             scores = self.model.predict(seq, items)
         return scores.tolist()

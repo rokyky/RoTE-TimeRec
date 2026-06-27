@@ -1,6 +1,6 @@
-"""Test SASRec+RoTE forward: finite output, no-timestamp fallback, shape.
+"""测试 SASRec+RoTE 前向传播：有限输出、无时间戳回退、形状。
 
-Usage: pytest tests/test_sasrec_rote_forward.py -v
+用法：pytest tests/test_sasrec_rote_forward.py -v
 """
 
 import pytest
@@ -12,7 +12,7 @@ from src.models.sasrec_rote import SASRecRoTE
 
 
 class TestSASRecRoTEForward:
-    """Tests for SASRec + RoTE model forward pass."""
+    """SASRec + RoTE 模型前向传播的测试。"""
 
     @pytest.fixture
     def num_items(self):
@@ -43,12 +43,12 @@ class TestSASRecRoTEForward:
         return 4
 
     def test_forward_with_timestamps(self, model, num_items, max_len, batch_size):
-        """Forward with timestamps: output finite scores of correct shape."""
+        """带时间戳前向传播：输出有限且形状正确。"""
         seqs = torch.randint(1, num_items, (batch_size, max_len))
         positions = torch.arange(max_len).unsqueeze(0).expand(batch_size, -1)
         timestamps = torch.rand(batch_size, max_len) * 1e9
         scores = model(seqs, positions, timestamps=timestamps)
-        # Score dim = num_items + 1 (includes padding index 0)
+        # 得分维度 = num_items + 1（含填充索引 0）
         expected_dim = num_items + 1
         assert scores.shape == (batch_size, expected_dim), \
             f"Expected ({batch_size}, {expected_dim}), got {scores.shape}"
@@ -56,7 +56,7 @@ class TestSASRecRoTEForward:
         assert not torch.isinf(scores).any(), "Scores contain Inf"
 
     def test_forward_accepts_float64_timestamps(self, model, num_items, max_len):
-        """Float64 timestamps from split protocols should be accepted."""
+        """切分协议产生的 Float64 时间戳应被接受。"""
         seqs = torch.randint(1, num_items, (2, max_len))
         positions = torch.arange(max_len).unsqueeze(0).expand(2, -1)
         timestamps = (torch.rand(2, max_len, dtype=torch.float64) * 1e9)
@@ -65,11 +65,11 @@ class TestSASRecRoTEForward:
         assert not torch.isnan(scores).any()
 
     def test_forward_without_timestamps(self, model, num_items, max_len, batch_size):
-        """Forward without timestamps: behaves like regular SASRec."""
+        """无时间戳前向传播：行为与标准 SASRec 相同。"""
         seqs = torch.randint(1, num_items, (batch_size, max_len))
         positions = torch.arange(max_len).unsqueeze(0).expand(batch_size, -1)
         scores = model(seqs, positions, timestamps=None)
-        # Score dim = num_items + 1 (includes padding index 0)
+        # 得分维度 = num_items + 1（含填充索引 0）
         expected_dim = num_items + 1
         assert scores.shape == (batch_size, expected_dim), \
             f"Expected ({batch_size}, {expected_dim}), got {scores.shape}"
@@ -77,28 +77,28 @@ class TestSASRecRoTEForward:
         assert not torch.isinf(scores).any(), "Scores contain Inf"
 
     def test_timestamps_vs_no_timestamps_different(self, model, max_len, batch_size):
-        """With vs without timestamps should produce different outputs."""
+        """带/不带时间戳应产生不同输出。"""
         seqs = torch.randint(1, 100, (batch_size, max_len))
         positions = torch.arange(max_len).unsqueeze(0).expand(batch_size, -1)
         ts = torch.rand(batch_size, max_len) * 1e9
         scores_with_ts = model(seqs, positions, timestamps=ts)
         scores_no_ts = model(seqs, positions, timestamps=None)
-        # With same random seed, these differ because RoTE adds time info
+        # 相同随机种子下，它们不同因为 RoTE 添加了时间信息
         diff = (scores_with_ts - scores_no_ts).abs().mean().item()
         assert diff > 0.0, "Timestamp should modify output"
 
     def test_padding_handling(self, model, max_len):
-        """Padded sequences should not crash."""
+        """填充序列不应崩溃。"""
         batch_size = 2
         seqs = torch.randint(1, 100, (batch_size, max_len))
-        seqs[0, :5] = 0  # pad first 5 positions
+        seqs[0, :5] = 0  # 填充前 5 个位置
         positions = torch.arange(max_len).unsqueeze(0).expand(batch_size, -1)
         ts = torch.rand(batch_size, max_len) * 1e9
         scores = model(seqs, positions, timestamps=ts)
         assert not torch.isnan(scores).any()
 
     def test_deterministic_eval_mode(self, model, max_len):
-        """Eval mode should be deterministic."""
+        """评估模式应具有确定性。"""
         model.eval()
         seqs = torch.randint(1, 100, (2, max_len))
         positions = torch.arange(max_len).unsqueeze(0).expand(2, -1)
@@ -110,7 +110,7 @@ class TestSASRecRoTEForward:
             "Eval mode forward should be deterministic"
 
     def test_gradient_flow(self, model, max_len):
-        """Gradients should flow through RoTE encoder."""
+        """梯度应能流经 RoTE 编码器。"""
         model.train()
         seqs = torch.randint(1, 100, (2, max_len))
         positions = torch.arange(max_len).unsqueeze(0).expand(2, -1)
@@ -119,13 +119,13 @@ class TestSASRecRoTEForward:
         scores = model(seqs, positions, timestamps=ts)
         loss = scores.sum()
         loss.backward()
-        # Check that RoTE encoder params received gradients
+        # 检查 RoTE 编码器参数是否接收到梯度
         has_grad = any(
             p.grad is not None and p.grad.abs().sum() > 0
             for p in model.rote_encoder.parameters()
         )
-        # Note: rote_encoder may not have learnable params if learnable=False
-        # Check at least model params have gradients
+        # 注意：如果 learnable=False，rote_encoder 可能没有可学习参数
+        # 至少检查模型参数有梯度
         model_has_grad = any(
             p.grad is not None and p.grad.abs().sum() > 0
             for p in model.parameters()

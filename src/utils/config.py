@@ -1,7 +1,7 @@
-'''Configuration loading utilities.
+'''配置加载工具。
 
-Reference:
-    - PyYAML + dict-based config with defaults
+参考：
+    - PyYAML + 基于字典的配置及默认值
 '''
 
 import os
@@ -12,14 +12,14 @@ def load_config(config_path: str = None) -> Dict[str, Any]:
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     default_path = os.path.join(base_dir, 'configs', 'default.yaml')
 
-    # Load defaults
+    # 加载默认配置
     if os.path.exists(default_path):
         with open(default_path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
     else:
         config = {}
 
-    # Override with user config
+    # 用用户配置覆盖
     if config_path and os.path.exists(config_path):
         with open(config_path, 'r') as f:
             user_config = yaml.safe_load(f)

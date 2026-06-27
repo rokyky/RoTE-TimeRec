@@ -1,6 +1,6 @@
-"""Test sequence split protocols: sample counts, timestamp preservation, shapes.
+"""测试序列切分协议：样本数量、时间戳保留、形状。
 
-Usage: pytest tests/test_split_protocols.py -v
+用法：pytest tests/test_split_protocols.py -v
 """
 
 import pytest
@@ -19,7 +19,7 @@ from src.data.split_protocols import (
 
 
 def make_sequences(n_users=10, min_len=5, max_len=15, seed=42):
-    """Generate synthetic user sequences with timestamps."""
+    """生成带时间戳的合成用户序列。"""
     import random
     random.seed(seed)
     sequences = {}
@@ -35,17 +35,17 @@ def make_sequences(n_users=10, min_len=5, max_len=15, seed=42):
 
 
 class TestLeaveOneOut:
-    """Tests for leave-one-out split protocol."""
+    """留一法切分协议的测试。"""
 
     def test_sample_count(self):
-        """One sample per user with >= 2 interactions."""
+        """每个 >= 2 次交互的用户生成一个样本。"""
         seqs, ts = make_sequences(n_users=10)
         samples = split_leave_one_out(seqs, max_len=20, user_timestamps=ts)
-        # All users have >= 5 items, so all 10 should produce samples
+        # 所有用户都有 >= 5 个物品，所以 10 个用户都应产生样本
         assert len(samples) == 10
 
     def test_sample_structure(self):
-        """Each sample has 5 elements: (item_seq, ts_seq, target_item, target_ts, uid)."""
+        """每个样本有 5 个元素：(item_seq, ts_seq, target_item, target_ts, uid)。"""
         seqs, ts = make_sequences(n_users=5)
         samples = split_leave_one_out(seqs, max_len=20, user_timestamps=ts)
         for sample in samples:
@@ -61,7 +61,7 @@ class TestLeaveOneOut:
             assert isinstance(sample[4], torch.LongTensor)      # user_id
 
     def test_target_is_last_item(self):
-        """Target should be the last item in user sequence."""
+        """目标应是用户序列的最后一个物品。"""
         seqs, ts = make_sequences(n_users=5)
         samples = split_leave_one_out(seqs, max_len=20, user_timestamps=ts)
         for sample in samples:
@@ -71,7 +71,7 @@ class TestLeaveOneOut:
                 f"Target {target} != last item {seqs[uid][-1]}"
 
     def test_timestamp_preserved(self):
-        """Target timestamp should match last interaction time."""
+        """目标时间戳应与最后交互时间一致。"""
         seqs, ts = make_sequences(n_users=5)
         samples = split_leave_one_out(seqs, max_len=20, user_timestamps=ts)
         for sample in samples:
@@ -82,7 +82,7 @@ class TestLeaveOneOut:
                 f"Target ts {target_ts} != expected {expected_ts}"
 
     def test_no_timestamps(self):
-        """Should work without timestamps (zero-filled)."""
+        """无时间戳也应能工作（零填充）。"""
         seqs, _ = make_sequences(n_users=5)
         samples = split_leave_one_out(seqs, max_len=20, user_timestamps=None)
         for sample in samples:
@@ -90,91 +90,91 @@ class TestLeaveOneOut:
 
 
 class TestNoSSS:
-    """Tests for no-sub-sequence-split protocol."""
+    """无子序列切分协议的测试。"""
 
     def test_one_sample_per_user(self):
-        """One sample per user, no augmentation."""
+        """每用户一个样本，无增强。"""
         seqs, ts = make_sequences(n_users=10)
         samples = split_no_sss(seqs, max_len=20, user_timestamps=ts)
         assert len(samples) == 10
 
     def test_truncation(self):
-        """Sequences longer than max_len are truncated."""
-        seqs = {0: list(range(1, 51))}  # 50 items
+        """长度超过 max_len 的序列被截断。"""
+        seqs = {0: list(range(1, 51))}  # 50 个物品
         ts = {0: [float(i) * 3600 for i in range(50)]}
         samples = split_no_sss(seqs, max_len=10, user_timestamps=ts)
         item_seq = samples[0][0]
         non_pad = item_seq[item_seq != 0]
-        assert len(non_pad) <= 9  # history is max_len-1
+        assert len(non_pad) <= 9  # 历史长度为 max_len-1
 
 
 class TestSlidingWindowSSS:
-    """Tests for sliding-window SSS protocol."""
+    """滑动窗口 SSS 协议的测试。"""
 
     def test_sample_count(self):
-        """Should produce multiple samples per user."""
+        """每用户应生成多个样本。"""
         seqs, ts = make_sequences(n_users=5, min_len=10, max_len=15)
         window_size = 5
         samples = split_sliding_window_sss(
             seqs, max_len=20, window_size=window_size, user_timestamps=ts,
         )
-        # Each user with seq_len L produces max(L - window_size + 1) samples
-        # With min_len=10, window_size=5, at least 6 samples per user, so >= 30 total
+        # 序列长度为 L 的每个用户产生 max(L - window_size + 1) 个样本
+        # 最小长度=10，窗口=5，每用户至少 6 个样本，总共 >= 30
         assert len(samples) >= 30
 
     def test_window_size_validation(self):
-        """window_size < 2 should raise ValueError."""
+        """window_size < 2 应抛出 ValueError。"""
         with pytest.raises(ValueError):
             split_sliding_window_sss({0: [1, 2, 3]}, window_size=1)
 
 
 class TestPrefixTargetSSS:
-    """Tests for prefix-target SSS protocol."""
+    """前缀-目标 SSS 协议的测试。"""
 
     def test_sample_count(self):
-        """Multiple prefix-target pairs per user."""
+        """每用户多个前缀-目标对。"""
         seqs, ts = make_sequences(n_users=5, min_len=10, max_len=10)
         prefix_min = 3
         samples = split_prefix_target_sss(
             seqs, max_len=20, prefix_min_len=prefix_min, user_timestamps=ts,
         )
-        # Each user with 10 items produces (10 - 3) = 7 samples
+        # 10 个物品的每个用户产生 (10 - 3) = 7 个样本
         assert len(samples) == 5 * 7
 
     def test_prefix_min_validation(self):
-        """prefix_min_len < 1 should raise ValueError."""
+        """prefix_min_len < 1 应抛出 ValueError。"""
         with pytest.raises(ValueError):
             split_prefix_target_sss({0: [1, 2, 3]}, prefix_min_len=0)
 
     def test_history_before_target(self):
-        """All history items should come before target in original sequence."""
+        """所有历史物品应在原始序列中出现在目标之前。""""
         seqs = {0: list(range(1, 11))}
         samples = split_prefix_target_sss(seqs, max_len=20, prefix_min_len=2)
         for sample in samples:
             item_seq = sample[0]
             target = sample[2].item()
             non_pad = item_seq[item_seq != 0].tolist()
-            # All history items should be < target (since items are sequential 1..10)
+            # 所有历史物品应 < target（因为物品是顺序的 1..10）
             for h in non_pad:
                 assert h < target, f"History item {h} >= target {target}"
 
 
 class TestApplySplit:
-    """Tests for the apply_split dispatcher."""
+    """apply_split 分发器的测试。"""
 
     def test_registered_protocols(self):
-        """All 4 protocols should be registered."""
+        """所有 4 个协议应被注册。"""
         assert set(SPLIT_REGISTRY.keys()) == {
             'leave_one_out', 'no_sss', 'sliding_window_sss', 'prefix_target_sss',
         }
 
     def test_unknown_protocol_raises(self):
-        """Unknown protocol should raise ValueError."""
+        """未知协议应抛出 ValueError。"""
         with pytest.raises(ValueError):
             apply_split('nonexistent', {0: [1, 2, 3]})
 
     def test_apply_leave_one_out(self):
-        """apply_split dispatches correctly."""
+        """apply_split 正确分发。"""
         seqs = {0: [1, 2, 3, 4, 5], 1: [10, 20, 30]}
         samples = apply_split('leave_one_out', seqs, max_len=10)
         assert len(samples) == 2

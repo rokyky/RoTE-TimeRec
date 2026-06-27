@@ -1,14 +1,14 @@
-'''Train a sequential recommendation model.
-Usage:
+'''训练序列推荐模型。
+用法：
     python train_model.py --model sasrec --epochs 5
     python train_model.py --model sasrec_rote --epochs 5
     python train_model.py --model tisasrec_rote --epochs 5
     python train_model.py --model sasrec --split sliding_window_sss
 
-支持模型:
+支持模型：
     sasrec, tisasrec, tisasrec_cat, sasrec_rote, tisasrec_rote
 
-支持 split 协议:
+支持切分协议：
     leave_one_out, no_sss, sliding_window_sss, prefix_target_sss
 '''
 
@@ -26,12 +26,12 @@ from src.eval.metrics import model_eval
 
 
 def build_model_factory(name, num_items, config):
-    '''使用 model registry 构建模型。'''
+    '''使用模型注册表构建模型。'''
     return build_model(name, num_items, config)
 
 
 def _model_needs_timestamps(model):
-    '''检查模型是否需要 timestamps 参数。'''
+    '''检查模型是否需要时间戳参数。'''
     from src.models.sasrec_rote import SASRecRoTE
     from src.models.tisasrec_rote import TiSASRecRoTE
     return isinstance(model, (SASRecRoTE, TiSASRecRoTE))
@@ -51,7 +51,7 @@ def generate_synthetic_data(num_users=100, num_items=50, seed=42):
     # 给每个物品随机分配类目（3 个类目）
     item_categories = {i: random.randint(1, 3) for i in range(1, num_items + 1)}
 
-    base_time = 1_700_000_000  # 2023-11-14 约 unix 时间
+    base_time = 1_700_000_000  # 约 2023-11-14 unix 时间
     for uid in range(num_users):
         length = random.randint(5, 20)
         seq = [random.randint(1, num_items) for _ in range(length)]
@@ -68,9 +68,9 @@ def generate_synthetic_data(num_users=100, num_items=50, seed=42):
 
 def build_dataset_with_timestamps(sequences, timestamps_dict, max_len, num_items,
                                    split_protocol='leave_one_out', **split_kwargs):
-    '''使用 split protocol 构造训练样本，带 timestamp。
+    '''使用切分协议构造训练样本，带时间戳。
 
-    返回 DataLoader-ready Dataset。
+    返回 DataLoader 就绪的 Dataset。
     '''
     samples = apply_split(
         split_protocol,
@@ -83,10 +83,10 @@ def build_dataset_with_timestamps(sequences, timestamps_dict, max_len, num_items
 
 
 class SplitDataset(torch.utils.data.Dataset):
-    '''包装 split protocol 产出的样本为 Dataset。
+    '''包装切分协议产出的样本为数据集。
 
-    每个样本: (item_seq, ts_seq, target_item, target_ts, user_id)
-    返回: (hist, pos, target, uid, [timestamps])
+    每个样本：(item_seq, ts_seq, target_item, target_ts, user_id)
+    返回：(hist, pos, target, uid, [timestamps])
     '''
 
     def __init__(self, samples, num_items):
@@ -105,12 +105,12 @@ class SplitDataset(torch.utils.data.Dataset):
             pos,
             target_item,
             user_id,
-            ts_seq,  # raw timestamps for RoTE models
+            ts_seq,  # RoTE 模型的原始时间戳
         )
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Train sequential recommendation models')
+    parser = argparse.ArgumentParser(description='训练序列推荐模型')
     parser.add_argument('--config', default=None, help='Path to config YAML')
     parser.add_argument('--model', default=None, help='Model name (sasrec, tisasrec, tisasrec_cat, sasrec_rote, tisasrec_rote)')
     parser.add_argument('--split', default=None, help='Split protocol (leave_one_out, no_sss, sliding_window_sss, prefix_target_sss)')
@@ -155,7 +155,7 @@ def main():
     bs = config.get('trainer', {}).get('batch_size', 128)
     model_name = config.get('model', {}).get('name', 'sasrec')
 
-    # ---- 训练集：使用 split protocol + timestamp ----
+    # ---- 训练集：使用切分协议 + 时间戳 ----
     train_ds = build_dataset_with_timestamps(
         train_seq, train_timestamps, ml, num_items,
         split_protocol=split_protocol, **split_kwargs,

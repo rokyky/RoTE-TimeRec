@@ -132,7 +132,7 @@ class TiSASRec(nn.Module):
         device = seqs.device
         batch_size, seq_len = seqs.shape
 
-        # Embedding
+        # 嵌入
         item_emb = self.item_emb(seqs)  # (B, L, D)
         pos_emb = self.pos_emb(positions)  # (B, L, D)
         x = self.dropout(item_emb + pos_emb)

@@ -1,6 +1,6 @@
-"""Test audit report: aggregate, slice, runtime fields, JSON export.
+"""测试审计报告：聚合、切片、运行时字段、JSON 导出。
 
-Usage: pytest tests/test_audit_report.py -v
+用法：pytest tests/test_audit_report.py -v
 """
 
 import json
@@ -20,7 +20,7 @@ MAX_LEN = 20  # consistent max_len across model, split, and data
 
 
 def make_data(n_users=10, min_len=5, max_len=15, seed=42):
-    """Generate synthetic data for audit testing."""
+    """生成用于审计测试的合成数据。"""
     import random
     random.seed(seed)
     sequences = {}
@@ -47,10 +47,10 @@ def _make_sasrec_model():
 
 
 class TestAuditReport:
-    """Tests for the audit system output structure."""
+    """审计系统输出结构的测试。"""
 
     def test_audit_has_aggregate_field(self):
-        """Audit output must contain 'aggregate' key."""
+        """审计输出必须包含 'aggregate' 键。"""
         model = _make_sasrec_model()
         seqs, ts, freq, cats = make_data()
         auditor = SplitProtocolAuditor(model, device='cpu', ks=[1, 5, 10])
@@ -70,7 +70,7 @@ class TestAuditReport:
         assert 'config' in results
 
     def test_aggregate_has_all_protocols(self):
-        """All requested protocols should appear in aggregate."""
+        """所有请求的协议应出现在聚合结果中。"""
         model = _make_sasrec_model()
         seqs, ts, freq, cats = make_data()
         auditor = SplitProtocolAuditor(model, device='cpu', ks=[1, 5])
@@ -87,7 +87,7 @@ class TestAuditReport:
                 f"Missing protocol '{protocol}' in aggregate"
 
     def test_aggregate_metrics_have_correct_keys(self):
-        """Each protocol should have recall@k and ndcg@k."""
+        """每个协议应有 recall@k 和 ndcg@k。"""
         model = _make_sasrec_model()
         seqs, ts, freq, cats = make_data()
         auditor = SplitProtocolAuditor(model, device='cpu', ks=[1, 5, 10])
@@ -105,7 +105,7 @@ class TestAuditReport:
             assert f'ndcg@{k}' in metrics
 
     def test_hard_slices_present(self):
-        """Hard-slice evaluation should produce slice results."""
+        """困难切片评估应产生切片结果。"""
         model = _make_sasrec_model()
         seqs, ts, freq, cats = make_data()
         auditor = SplitProtocolAuditor(model, device='cpu', ks=[1, 5])
@@ -124,7 +124,7 @@ class TestAuditReport:
         assert len(slice_names) > 0, "No hard slices produced"
 
     def test_runtime_metrics_structure(self):
-        """Runtime metrics should have latency, memory, params fields."""
+        """运行时指标应有延迟、显存、参数字段。"""
         model = _make_sasrec_model()
         seqs, ts, freq, cats = make_data()
         auditor = SplitProtocolAuditor(model, device='cpu', ks=[1, 5])
@@ -144,7 +144,7 @@ class TestAuditReport:
         assert 'peak_memory_mb' in runtime
 
     def test_json_export_valid(self):
-        """JSON export should produce valid, parseable JSON."""
+        """JSON 导出应产生有效的、可解析的 JSON。"""
         model = _make_sasrec_model()
         seqs, ts, freq, cats = make_data()
         auditor = SplitProtocolAuditor(model, device='cpu', ks=[1, 5])
@@ -169,7 +169,7 @@ class TestAuditReport:
         os.unlink(json_path)
 
     def test_csv_export(self):
-        """CSV table export should create files."""
+        """CSV 表格导出应创建文件。"""
         model = _make_sasrec_model()
         seqs, ts, freq, cats = make_data()
         auditor = SplitProtocolAuditor(model, device='cpu', ks=[1, 5])
@@ -189,14 +189,14 @@ class TestAuditReport:
 
 
 class TestComputeRuntimeMetrics:
-    """Tests for runtime metrics computation."""
+    """运行时指标计算的测试。"""
 
     def test_returns_expected_keys(self):
-        """Should return all expected runtime keys."""
+        """应返回所有预期的运行时键。"""
         model = _make_sasrec_model()
         hist = torch.randint(1, 50, (2, MAX_LEN))
         pos = torch.arange(MAX_LEN).unsqueeze(0).expand(2, -1)
-        # Use _model_forward directly with model as first arg
+        # 直接使用 _model_forward，第一个参数为 model
         sample_inputs = {
             'model': model,
             'hist': hist,
@@ -211,10 +211,10 @@ class TestComputeRuntimeMetrics:
 
 
 class TestHardSliceMetrics:
-    """Tests for hard-slice evaluation."""
+    """困难切片评估的测试。"""
 
     def test_slice_output_structure(self):
-        """Should produce per-slice metrics."""
+        """应生成按切片划分的指标。"""
         model = _make_sasrec_model()
         seqs, ts, freq, cats = make_data(n_users=10)
         from src.data.split_protocols import split_leave_one_out

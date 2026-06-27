@@ -1,6 +1,6 @@
-"""Test TiSASRec+RoTE forward: ablation switches, combined bias+rote, shapes.
+"""测试 TiSASRec+RoTE 前向传播：消融开关、组合偏置+RoTE、形状。
 
-Usage: pytest tests/test_tisasrec_rote_forward.py -v
+用法：pytest tests/test_tisasrec_rote_forward.py -v
 """
 
 import pytest
@@ -25,20 +25,20 @@ def make_model(num_items=100, hidden_dim=64, max_len=20, **kwargs):
 
 
 def score_dim(num_items):
-    """Score output dim = num_items + 1 (includes padding idx 0)."""
+    """得分输出维度 = num_items + 1（含填充索引 0）。"""
     return num_items + 1
 
 
 class TestTiSASRecRoTEForward:
-    """Tests for TiSASRec + RoTE model."""
+    """TiSASRec + RoTE 模型的测试。"""
 
     def test_full_model_forward(self):
-        """TiSASRec bias + RoTE enabled: output finite scores."""
+        """TiSASRec 偏置 + RoTE 启用：输出有限得分。"""
         model = make_model(use_relative_bias=True, use_rote=True)
         B, L = 4, 20
         seqs = torch.randint(1, 100, (B, L))
         pos = torch.arange(L).unsqueeze(0).expand(B, -1)
-        td = torch.rand(B, L, L) * 100000  # time deltas in seconds
+        td = torch.rand(B, L, L) * 100000  # 时间差（秒）
         ts = torch.rand(B, L) * 1e9
         scores = model(seqs, pos, td, timestamps=ts)
         assert scores.shape == (B, score_dim(100))
@@ -46,7 +46,7 @@ class TestTiSASRecRoTEForward:
         assert not torch.isinf(scores).any()
 
     def test_bias_only_ablation(self):
-        """TiSASRec bias only (RoTE disabled)."""
+        """仅 TiSASRec 偏置（RoTE 禁用）。"""
         model = make_model(use_relative_bias=True, use_rote=False)
         B, L = 4, 20
         seqs = torch.randint(1, 100, (B, L))
@@ -58,7 +58,7 @@ class TestTiSASRecRoTEForward:
         assert not torch.isnan(scores).any()
 
     def test_rote_only_ablation(self):
-        """RoTE only (TiSASRec bias disabled)."""
+        """仅 RoTE（TiSASRec 偏置禁用）。"""
         model = make_model(use_relative_bias=False, use_rote=True)
         B, L = 4, 20
         seqs = torch.randint(1, 100, (B, L))
@@ -70,7 +70,7 @@ class TestTiSASRecRoTEForward:
         assert not torch.isnan(scores).any()
 
     def test_neither_ablation(self):
-        """Neither bias nor RoTE: pure position-only attention."""
+        """既无偏置也无 RoTE：纯位置注意力。"""
         model = make_model(use_relative_bias=False, use_rote=False)
         B, L = 4, 20
         seqs = torch.randint(1, 100, (B, L))
@@ -82,7 +82,7 @@ class TestTiSASRecRoTEForward:
         assert not torch.isnan(scores).any()
 
     def test_no_timestamps_fallback(self):
-        """When timestamps=None, RoTE should be skipped gracefully."""
+        """当 timestamps=None 时，RoTE 应优雅跳过。"""
         model = make_model(use_relative_bias=True, use_rote=True)
         B, L = 4, 20
         seqs = torch.randint(1, 100, (B, L))
@@ -93,7 +93,7 @@ class TestTiSASRecRoTEForward:
         assert not torch.isnan(scores).any()
 
     def test_float64_timestamps_supported(self):
-        """Float64 timestamps from split protocols should be accepted."""
+        """切分协议产生的 Float64 时间戳应被接受。"""
         model = make_model(use_relative_bias=True, use_rote=True)
         B, L = 2, 20
         seqs = torch.randint(1, 100, (B, L))
@@ -105,7 +105,7 @@ class TestTiSASRecRoTEForward:
         assert not torch.isnan(scores).any()
 
     def test_ablation_produces_different_outputs(self):
-        """Different ablation settings should produce different scores."""
+        """不同的消融设置应产生不同的得分。"""
         model_full = make_model(use_relative_bias=True, use_rote=True)
         model_bias = make_model(use_relative_bias=True, use_rote=False)
         model_rote = make_model(use_relative_bias=False, use_rote=True)
@@ -123,7 +123,7 @@ class TestTiSASRecRoTEForward:
             s_rote = model_rote(seqs, pos, td, timestamps=ts)
             s_neither = model_neither(seqs, pos, td, timestamps=ts)
 
-        # All should differ from each other (at least somewhat)
+        # 所有组合应各不相同（至少略有差异）
         pairs = [
             (s_full, s_bias, "full vs bias-only"),
             (s_full, s_rote, "full vs rote-only"),
@@ -135,7 +135,7 @@ class TestTiSASRecRoTEForward:
             assert diff > 0.0, f"{label} should differ but diff=0"
 
     def test_padding_handling(self):
-        """Padded sequences work without crash."""
+        """填充序列正常工作，不崩溃。"""
         model = make_model()
         B, L = 2, 20
         seqs = torch.randint(1, 100, (B, L))
@@ -147,7 +147,7 @@ class TestTiSASRecRoTEForward:
         assert not torch.isnan(scores).any()
 
     def test_deterministic_eval(self):
-        """Eval mode forward should be deterministic."""
+        """评估模式前向传播应具有确定性。"""
         model = make_model()
         model.eval()
         B, L = 2, 20

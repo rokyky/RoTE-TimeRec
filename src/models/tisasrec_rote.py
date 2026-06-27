@@ -70,10 +70,10 @@ class TiSASRecRoTE(nn.Module):
         self.item_emb = nn.Embedding(num_items + 1, hidden_dim, padding_idx=0)
         self.pos_emb = nn.Embedding(max_len, hidden_dim)
 
-        # Relative time interval bias (TiSASRec style)
+        # 相对时间间隔偏置（TiSASRec 风格）
         self.time_bias = nn.Embedding(self.num_time_buckets, 1)
 
-        # RoTE time encoder
+        # RoTE 时间编码器
         if rote_granularities is None:
             rote_granularities = ['hour', 'day', 'week']
         self.rote_encoder = RoTEEncoder(

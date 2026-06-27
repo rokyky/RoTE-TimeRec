@@ -52,7 +52,7 @@ class SASRecRoTE(nn.Module):
         self.item_emb = nn.Embedding(num_items + 1, hidden_dim, padding_idx=0)
         self.pos_emb = nn.Embedding(max_len, hidden_dim)
 
-        # RoTE time encoder
+        # RoTE 时间编码器
         if rote_granularities is None:
             rote_granularities = ['hour', 'day', 'week']
         self.rote_encoder = RoTEEncoder(
@@ -61,8 +61,8 @@ class SASRecRoTE(nn.Module):
             theta_base=rote_theta_base,
         )
 
-        # Linear projection to combine RoTE features (optional,
-        # but useful for mixing time info before attention)
+        # 线性投影以组合 RoTE 特征（可选，
+        # 但对于在注意力前混合时间信息很有用）
         self.rote_proj = nn.Linear(hidden_dim, hidden_dim)
 
         self.q_proj = nn.ModuleList([

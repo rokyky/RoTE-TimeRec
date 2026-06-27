@@ -1,6 +1,6 @@
-# Trainer for sequential recommendation models.
+# 序列推荐模型的训练器。
 # SASRec / TiSASRec / TiSASRec-Cat
-# Early stopping, checkpoint, LR scheduling, metric logging
+# 早停、检查点、学习率调度、指标日志
 
 import os
 import logging
@@ -88,7 +88,7 @@ class Trainer:
                 timestamps = None
             elif len(batch) == 5:
                 hist, pos, target, uid, extra = batch
-                # Check if extra is time_deltas (3D) or timestamps (2D)
+                # 检查 extra 是 time_deltas（3D）还是 timestamps（2D）
                 if extra.dim() == 3:
                     timestamps = None
                     time_deltas = extra

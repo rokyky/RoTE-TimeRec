@@ -1,4 +1,4 @@
-"""ItemCF：基于物品协同过滤的推荐 baseline。
+"""ItemCF：基于物品协同过滤的推荐基线。
 
 通过训练集中的物品共现关系计算物品间相似度，
 然后根据用户历史交互物品的相似物品进行推荐。
@@ -22,15 +22,15 @@ class ItemCF:
 
     def __init__(self, num_items):
         self.num_items = num_items
-        self.sim_matrix = None  # (num_items+1, num_items+1) 稀疏矩阵，0 为 padding
+        self.sim_matrix = None  # (num_items+1, num_items+1) 稀疏矩阵，0 为填充
         self.is_fitted = False
 
     def fit(self, train_df, item2idx=None, user_col='reviewerID', item_col='asin',
             min_sim_items=2):
         """在训练数据上拟合 ItemCF 模型。
 
-        基于 co-occurrence 构建 item-item 相似度矩阵。
-        相似度度量：cosine similarity over user co-occurrence vectors。
+        基于共现关系构建 item-item 相似度矩阵。
+        相似度度量：基于用户共现向量的余弦相似度。
 
         参数：
             train_df: 训练 DataFrame，必须包含 user_col 和 item_col
@@ -45,7 +45,7 @@ class ItemCF:
         user2idx = {u: i for i, u in enumerate(users)}
         num_users = len(users)
 
-        # 收集 interactions
+        # 收集交互数据
         user_item_pairs = defaultdict(set)
         for _, row in train_df.iterrows():
             u = user2idx.get(row[user_col])
