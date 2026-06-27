@@ -1,0 +1,48 @@
+# TimeGenRec 默认配置
+# model / trainer / data / pipeline 各节
+
+model:
+  name: tisasrec_cat       # sasrec | tisasrec | tisasrec_cat
+  hidden_dim: 64
+  num_layers: 2
+  num_heads: 1
+  dropout: 0.2
+  max_len: 50
+
+trainer:
+  lr: 0.001
+  weight_decay: 0.0
+  epochs: 50
+  patience: 5
+  batch_size: 128
+  clip_grad_norm: 1.0
+  lr_scheduler_factor: 0.5
+  lr_scheduler_patience: 3
+
+data:
+  dataset: amazon_beauty   # amazon_beauty | amazon_sports | ml-1m
+  data_dir: ./data
+  max_len: 50
+  neg_samples: 1
+
+pipeline:
+  stages:
+    - recall
+    - pre_rank
+    - rank
+    - re_rank
+  recall:
+    methods: [popularity, itemcf]
+    top_k: 500
+  pre_rank:
+    keep_k: 200
+  rank:
+    keep_k: 100
+    model_path: ./checkpoints/best.pt
+  re_rank:
+    keep_k: 50
+    lambda: 0.5
+
+eval:
+  ks: [1, 5, 10, 20]
+  bucket_by: [popularity, category_entropy, sequence_length]
