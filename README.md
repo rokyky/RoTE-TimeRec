@@ -138,6 +138,45 @@ from src.data.split_protocols import apply_split
 python -m pytest tests/ -v
 ```
 
+## 算力估算与实验建议
+
+### 最低配置
+
+单卡 **RTX 4090（24GB）** 完全足够，A100 只是压缩时间不是必须。
+
+### 资源估算
+
+| 版本 | 实验范围 | 4090 单卡 | A100 单卡 |
+|------|---------|----------|----------|
+| 最小闭环 | Beauty × 1 seed，SASRec / TiSASRec / RoTE，少量 epoch | 4–8 h | 3–6 h |
+| **可投递可信版** | Beauty + Sports × 2–3 seeds，RoTE 消融，SSS audit，hard slice | **20–40 h** | **15–30 h** |
+| 完整实验 | 3 数据集 × 3 seeds，多 split、多 RoTE 变体、pipeline 全评估 | 50–100 h | 35–75 h |
+
+### 必须跑的实验
+
+```
+SASRec（基线）
+TiSASRec（时间间隔基线）
+TiSASRec-Cat（类目条件时间偏置）
+SASRec + RoTE（多粒度时间 embedding）
+TiSASRec + RoTE（相对 bias + RoTE 消融）
+SSS audit（leave_one_out / no_sss / sliding_window / prefix_target）
+hard slice（short/long history、time gap、popularity、category switch）
+```
+
+### 可以砍的实验
+
+- 所有模型都跑 3 seeds → 主对比 1 seed，核心模型补 3 seeds
+- 所有 split 都跑 3 seeds → 1 seed 足以观测 split 偏差
+- 三个数据集全量 audit → Beauty + Sports 足够
+
+### 建议跑法
+
+1. **Beauty 小闭环**（4–8 h）：确认代码全通、指标正常
+2. **补 Sports + 多 seed**（16–32 h）：RoTE 消融、SSS audit、hard slice
+
+性价比最高的投入产出比：**Beauty + Sports × 2–3 seeds × 全部消融**。
+
 ### RoTE 模型变体
 
 | 模型 | 命令 |
