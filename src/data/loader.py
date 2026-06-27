@@ -6,21 +6,37 @@ Reference:
 '''
 
 import random
+import logging
 from typing import Dict, List, Optional, Tuple
+
 import torch
 from torch.utils.data import Dataset, DataLoader
 
+logger = logging.getLogger(__name__)
+
+
 class SeqRecDataset(Dataset):
+    '''Training dataset with optional timestamp support for RoTE models.
+
+    When timestamps are provided, __getitem__ returns 5-element tuples:
+        (hist, pos, target, uid, ts_hist)
+    Otherwise returns 4-element tuples for backward compatibility:
+        (hist, pos, target, uid)
+    '''
+
     def __init__(self,
                  sequences: Dict[int, List[int]],
                  max_len: int = 50,
                  num_items: int = 0,
                  neg_samples: int = 1,
-                 item_popularity: Optional[Dict[int, int]] = None):
+                 item_popularity: Optional[Dict[int, int]] = None,
+                 timestamps: Optional[Dict[int, List[float]]] = None):
         self.max_len = max_len
         self.num_items = num_items
         self.neg_samples = neg_samples
         self.item_popularity = item_popularity
+        self.timestamps = timestamps or {}
+        self.has_timestamps = bool(self.timestamps)
         self.samples = []
         for uid, seq in sequences.items():
             for i in range(1, len(seq)):
@@ -35,22 +51,66 @@ class SeqRecDataset(Dataset):
         pad_len = self.max_len - len(hist)
         hist = [0] * pad_len + hist
         pos = list(range(0, len(hist)))
-        return (torch.tensor(hist, dtype=torch.long),
-                torch.tensor(pos, dtype=torch.long),
-                torch.tensor(target, dtype=torch.long),
-                torch.tensor(uid, dtype=torch.long))
+
+        result = [
+            torch.tensor(hist, dtype=torch.long),
+            torch.tensor(pos, dtype=torch.long),
+            torch.tensor(target, dtype=torch.long),
+            torch.tensor(uid, dtype=torch.long),
+        ]
+
+        # Append raw timestamps if available (for RoTE models)
+        if self.has_timestamps:
+            ts_all = self.timestamps.get(uid, [])
+            # Align timestamps with history prefix
+            hist_len = min(len(hist) - pad_len, len(ts_all))
+            ts_hist = [0.0] * pad_len
+            for j in range(hist_len):
+                ts_hist.append(ts_all[j] if j < len(ts_all) else 0.0)
+            ts_hist = ts_hist[-self.max_len:]  # ensure exact length
+            result.append(torch.tensor(ts_hist, dtype=torch.float))
+
+        return tuple(result)
+
 
 class EvalDataset(Dataset):
+    '''Evaluation dataset with optional timestamp and category support.
+
+    When timestamps and item_categories are provided, __getitem__ returns
+    6-element tuples: (hist, pos, target, uid, time_deltas, same_cat_mask).
+    Otherwise returns 4-element tuples for backward compatibility.
+    '''
+
     def __init__(self,
                  sequences: Dict[int, List[int]],
-                 max_len: int = 50):
+                 max_len: int = 50,
+                 timestamps: Optional[Dict[int, List[float]]] = None,
+                 item_categories: Optional[Dict[int, int]] = None,
+                 return_timestamps: bool = False):
         self.max_len = max_len
         self.users = []
         self.sequences = {}
+        self.timestamps = timestamps or {}
+        self.item_categories = item_categories or {}
+        self.return_timestamps = return_timestamps
+        self.has_timestamps = bool(self.timestamps)
+        self.has_categories = bool(self.item_categories)
+
         for uid, seq in sequences.items():
             if len(seq) >= 2:
                 self.users.append(uid)
                 self.sequences[uid] = seq
+
+        if not self.has_timestamps:
+            logger.warning(
+                "EvalDataset: no timestamps provided. TiSASRec/TiSASRec-Cat will "
+                "use zero time_deltas, degrading to position-only attention."
+            )
+        if not self.has_categories:
+            logger.warning(
+                "EvalDataset: no item_categories provided. TiSASRec-Cat will "
+                "use all-False same_cat_mask, disabling category-conditioned bias."
+            )
 
     def __len__(self) -> int:
         return len(self.users)
@@ -58,13 +118,58 @@ class EvalDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple:
         uid = self.users[idx]
         seq = self.sequences[uid]
-        hist = seq[:-1]
-        target = seq[-1]
-        hist = hist[-self.max_len:]
-        pad_len = self.max_len - len(hist)
-        hist = [0] * pad_len + hist
-        pos = list(range(0, len(hist)))
-        return (torch.tensor(hist, dtype=torch.long),
-                torch.tensor(pos, dtype=torch.long),
-                torch.tensor(target, dtype=torch.long),
-                torch.tensor(uid, dtype=torch.long))
+        hist = seq[:-1]          # all but last as history
+        target = seq[-1]         # last as target
+
+        # Truncate and pad history
+        hist_items = hist[-self.max_len:]
+        pad_len = self.max_len - len(hist_items)
+        hist_padded = [0] * pad_len + hist_items
+        pos = list(range(0, len(hist_padded)))
+
+        result = [
+            torch.tensor(hist_padded, dtype=torch.long),
+            torch.tensor(pos, dtype=torch.long),
+            torch.tensor(target, dtype=torch.long),
+            torch.tensor(uid, dtype=torch.long),
+        ]
+
+        # Build time_deltas matrix if timestamps available
+        if self.has_timestamps:
+            ts = self.timestamps.get(uid, [])
+            # Align timestamps with history items (before padding)
+            if len(ts) >= len(hist):
+                ts_hist = ts[:len(hist)][-self.max_len:]  # last max_len items
+                ts_hist = [0.0] * pad_len + ts_hist       # pad front
+            else:
+                ts_hist = [0.0] * self.max_len
+
+            L = self.max_len
+            td = torch.zeros(L, L, dtype=torch.float32)
+            for i in range(L):
+                for j in range(L):
+                    td[i, j] = abs(ts_hist[i] - ts_hist[j])
+            result.append(td)
+
+            # RoTE variants need raw timestamps; keep it opt-in so the
+            # historical EvalDataset tuple shape remains stable by default.
+            if self.return_timestamps:
+                result.append(torch.tensor(ts_hist, dtype=torch.float32))
+
+        # Build same_cat_mask if categories available
+        if self.has_categories:
+            # Get category for each history item
+            cat_hist = []
+            for item in hist_items:
+                cat_hist.append(self.item_categories.get(item, -1))
+            cat_hist = [-1] * pad_len + cat_hist  # pad front with -1 (no-match)
+
+            L = self.max_len
+            scm = torch.zeros(L, L, dtype=torch.bool)
+            for i in range(L):
+                for j in range(L):
+                    if cat_hist[i] >= 0 and cat_hist[j] >= 0 and cat_hist[i] == cat_hist[j]:
+                        scm[i, j] = True
+            result.append(scm)
+
+        return tuple(result)

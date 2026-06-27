@@ -1,13 +1,24 @@
-# TimeGenRec 默认配置
-# model / trainer / data / pipeline 各节
+# RoTE-TimeRec 默认配置
+# model / trainer / data / pipeline / eval 各节
+#
+# 支持模型: sasrec | tisasrec | tisasrec_cat | sasrec_rote | tisasrec_rote
+# 支持 split: leave_one_out | no_sss | sliding_window_sss | prefix_target_sss
 
 model:
-  name: tisasrec_cat       # sasrec | tisasrec | tisasrec_cat
+  name: sasrec               # sasrec | tisasrec | tisasrec_cat | sasrec_rote | tisasrec_rote
   hidden_dim: 64
   num_layers: 2
   num_heads: 1
   dropout: 0.2
   max_len: 50
+  # -- RoTE 变体参数 (仅 sasrec_rote / tisasrec_rote 使用) --
+  rote_granularities: [hour, day, week]   # 多粒度时间层级，粗到细
+  rote_theta_base: 10000.0
+  # -- TiSASRec / TiSASRec-RoTE 参数 --
+  time_bucket_defs: [0, 1, 6, 24, 168, 720]  # 小时阈值
+  # -- TiSASRec-RoTE 消融开关 --
+  use_relative_bias: true   # false = 仅 RoTE，无 TiSASRec bias
+  use_rote: true            # false = 仅 TiSASRec bias，无 RoTE
 
 trainer:
   lr: 0.001
@@ -20,10 +31,14 @@ trainer:
   lr_scheduler_patience: 3
 
 data:
-  dataset: amazon_beauty   # amazon_beauty | amazon_sports | ml-1m
+  dataset: amazon_beauty     # amazon_beauty | amazon_sports | ml-1m
   data_dir: ./data
   max_len: 50
   neg_samples: 1
+  # -- Sequence Split 协议 --
+  split_protocol: leave_one_out   # leave_one_out | no_sss | sliding_window_sss | prefix_target_sss
+  sliding_window_size: 10         # sliding_window_sss 窗口大小
+  prefix_min_len: 3               # prefix_target_sss 最小 history 长度
 
 pipeline:
   stages:
@@ -46,3 +61,7 @@ pipeline:
 eval:
   ks: [1, 5, 10, 20]
   bucket_by: [popularity, category_entropy, sequence_length]
+  # -- Hard-slice 评估切片 --
+  hard_slices: [history_length, time_gap, item_popularity, category_switch]
+  # -- SSS Audit 协议列表 --
+  audit_protocols: [leave_one_out, no_sss, sliding_window_sss, prefix_target_sss]

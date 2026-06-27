@@ -63,12 +63,19 @@ class Trainer:
     def _needs_time_deltas(self):
         from .models.tisasrec import TiSASRec
         from .models.tisasrec_cat import TiSASRecCat
-        return isinstance(self.model, (TiSASRec, TiSASRecCat))
+        from .models.tisasrec_rote import TiSASRecRoTE
+        return isinstance(self.model, (TiSASRec, TiSASRecCat, TiSASRecRoTE))
 
     @property
     def _needs_cat_mask(self):
         from .models.tisasrec_cat import TiSASRecCat
         return isinstance(self.model, TiSASRecCat)
+
+    @property
+    def _needs_timestamps(self):
+        from .models.sasrec_rote import SASRecRoTE
+        from .models.tisasrec_rote import TiSASRecRoTE
+        return isinstance(self.model, (SASRecRoTE, TiSASRecRoTE))
 
     def train_epoch(self) -> float:
         self.model.train()
@@ -78,27 +85,44 @@ class Trainer:
         for batch in self.train_loader:
             if len(batch) == 4:
                 hist, pos, target, uid = batch
+                timestamps = None
+            elif len(batch) == 5:
+                hist, pos, target, uid, extra = batch
+                # Check if extra is time_deltas (3D) or timestamps (2D)
+                if extra.dim() == 3:
+                    timestamps = None
+                    time_deltas = extra
+                else:
+                    timestamps = extra
+                    time_deltas = None
             else:
-                hist, pos, target, uid, time_deltas = batch
+                hist, pos, target, uid, time_deltas, timestamps = batch
 
             hist = hist.to(self.device)
             pos = pos.to(self.device)
             target = target.to(self.device)
 
-            if self._needs_time_deltas and len(batch) == 5:
+            if self._needs_time_deltas and time_deltas is not None:
                 td = time_deltas.to(self.device)
             elif self._needs_time_deltas:
                 td = torch.zeros(hist.size(0), hist.size(1), hist.size(1), device=self.device)
             else:
                 td = None
 
+            if timestamps is not None:
+                ts = timestamps.to(self.device)
+            else:
+                ts = None
+
             if self._needs_cat_mask:
-                # Default: all cross-category (False), making TiSASRecCat act like TiSASRec
-                # when no real category info is available
                 cm = torch.zeros(hist.size(0), hist.size(1), hist.size(1), dtype=torch.bool, device=self.device)
                 logits = self.model(hist, pos, td, cm)
+            elif self._needs_time_deltas and self._needs_timestamps:
+                logits = self.model(hist, pos, td, timestamps=ts)
             elif self._needs_time_deltas:
                 logits = self.model(hist, pos, td)
+            elif self._needs_timestamps:
+                logits = self.model(hist, pos, timestamps=ts)
             else:
                 logits = self.model(hist, pos)
 
@@ -168,17 +192,23 @@ class Trainer:
             self.model.load_state_dict(self.best_state)
             logger.info('Restored best model weights')
 
-    def predict(self, seqs, positions, time_deltas=None, same_cat_mask=None):
+    def predict(self, seqs, positions, time_deltas=None, same_cat_mask=None, timestamps=None):
         self.model.eval()
         with torch.no_grad():
             seqs = seqs.to(self.device)
             positions = positions.to(self.device)
+            td = time_deltas.to(self.device) if time_deltas is not None else None
+            ts = timestamps.to(self.device) if timestamps is not None else None
             if self._needs_cat_mask and same_cat_mask is not None:
                 cm = same_cat_mask.to(self.device)
-                return self.model(seqs, positions, time_deltas.to(self.device) if time_deltas is not None else None, cm)
-            elif self._needs_time_deltas and time_deltas is not None:
-                return self.model(seqs, positions, time_deltas.to(self.device))
+                return self.model(seqs, positions, td, timestamps=ts)
+            elif self._needs_time_deltas and td is not None:
+                if self._needs_timestamps:
+                    return self.model(seqs, positions, td, timestamps=ts)
+                return self.model(seqs, positions, td)
             else:
+                if self._needs_timestamps and ts is not None:
+                    return self.model(seqs, positions, timestamps=ts)
                 return self.model(seqs, positions)
 
     def save(self, path: str) -> None:

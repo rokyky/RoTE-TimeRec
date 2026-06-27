@@ -1,11 +1,12 @@
-"""Pipeline 基类与候选数据结构定义。
+"""管道基类与候选数据结构定义。
 
 定义各阶段统一的 Candidate 数据结构和 PipelineStage 接口，
 确保召回 → 粗排 → 精排 → 重排 各阶段数据流一致。
 """
 
+import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import torch
 
@@ -26,6 +27,24 @@ class Candidate:
     score: float = 0.0
     features: Dict[str, float] = field(default_factory=dict)
     source: str = ""
+
+
+@dataclass
+class PipelineStats:
+    """记录单个管道阶段的运行统计。
+
+    字段说明：
+        stage_name:       阶段名称
+        input_candidates:  输入候选总数（跨所有用户）
+        output_candidates: 输出候选总数（跨所有用户）
+        wall_time_ms:      耗时（毫秒）
+        hit_rate:          命中率（如果提供了 ground truth）
+    """
+    stage_name: str
+    input_candidates: int
+    output_candidates: int
+    wall_time_ms: float
+    hit_rate: Optional[float] = None
 
 
 class CandidateList:
@@ -50,8 +69,13 @@ class CandidateList:
     def user_ids(self):
         return list(self._data.keys())
 
-    def __len__(self) -> int:
+    @property
+    def total_candidates(self) -> int:
+        """返回所有用户的候选总数。"""
         return sum(len(cands) for cands in self._data.values())
+
+    def __len__(self) -> int:
+        return self.total_candidates
 
     def merge(self, other: "CandidateList") -> "CandidateList":
         """合并另一个 CandidateList（用于多路召回合并）。"""
@@ -94,3 +118,47 @@ class PipelineStage:
             处理后的候选列表
         """
         raise NotImplementedError
+
+    def predict_with_stats(self,
+                           candidates: CandidateList,
+                           context: dict,
+                           ground_truth: Optional[Dict[int, int]] = None,
+                           ) -> Tuple[CandidateList, PipelineStats]:
+        """带统计收集的 predict 包裹方法。
+
+        参数：
+            candidates: 输入候选
+            context:    上下文信息
+            ground_truth: 每个用户的真实目标 item（可选，用于计算命中率）
+
+        返回：
+            (处理后的候选列表, 阶段统计)
+        """
+        input_count = candidates.total_candidates
+        t0 = time.perf_counter()
+        result = self.predict(candidates, context)
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        output_count = result.total_candidates
+
+        # 计算命中率（如果提供了 ground truth）
+        hit_rate = None
+        if ground_truth:
+            hits = 0
+            total = 0
+            for uid, cands in result.items():
+                gt_item = ground_truth.get(uid)
+                if gt_item is not None:
+                    total += 1
+                    if any(c.item_id == gt_item for c in cands):
+                        hits += 1
+            if total > 0:
+                hit_rate = hits / total
+
+        stats = PipelineStats(
+            stage_name=self.name,
+            input_candidates=input_count,
+            output_candidates=output_count,
+            wall_time_ms=elapsed_ms,
+            hit_rate=hit_rate,
+        )
+        return result, stats
