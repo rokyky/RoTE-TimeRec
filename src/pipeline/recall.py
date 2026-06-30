@@ -5,8 +5,14 @@
     - EasyRec matching 模块
 '''
 
-from typing import Dict, List
+import logging
+from typing import Dict, List, Optional
+
+import numpy as np
+
 from .base import Candidate, CandidateList, PipelineStage
+
+logger = logging.getLogger(__name__)
 
 
 class PopularityRecall(PipelineStage):
@@ -61,31 +67,81 @@ class ItemCFRecall(PipelineStage):
 
 
 class DSSMRecall(PipelineStage):
-    '''双塔向量召回（存根：需要 Faiss 集成）。'''
+    """双塔向量召回 — 使用 Faiss 进行 ANN 搜索。
+
+    fit() 接收 user/item embedding 并构建 Faiss 索引；
+    predict() 对每个用户用 Faiss 搜索 top-K 候选。
+
+    Faiss 为可选依赖：未安装时回退到暴力搜索（适合小数据集）。
+    """
 
     def __init__(self, top_k: int = 500):
         super().__init__('recall_dssm')
         self.top_k = top_k
+        self.index: Optional[object] = None
+        self._index_item_ids: List[int] = []
+        self._user_emb: Dict[int, np.ndarray] = {}
 
-    def fit(self, user_emb: Dict[int, List[float]], item_emb: Dict[int, List[float]]) -> None:
-        self.user_emb = user_emb
-        self.item_emb = item_emb
+    def fit(
+        self,
+        user_emb: Dict[int, List[float]],
+        item_emb: Dict[int, List[float]],
+    ) -> None:
+        """构建 Faiss 索引。"""
+        self._user_emb = {uid: np.array(v, dtype=np.float32) for uid, v in user_emb.items()}
+
+        self._index_item_ids = sorted(item_emb.keys())
+        emb_matrix = np.array(
+            [item_emb[iid] for iid in self._index_item_ids], dtype=np.float32,
+        )
+
+        dim = emb_matrix.shape[1]
+        try:
+            import faiss
+            self.index = faiss.IndexFlatIP(dim)
+            self.index.add(emb_matrix)
+            logger.info(
+                "Faiss index built: %d items, dim=%d", self.index.ntotal, dim,
+            )
+        except ImportError:
+            logger.warning(
+                "faiss not installed, falling back to brute-force. "
+                "Install with: pip install faiss-cpu"
+            )
+            self.index = None
+            self._fallback_embs = emb_matrix
 
     def predict(self, candidates: CandidateList, context: dict) -> CandidateList:
-        # 占位：实际场景需使用 Faiss MIP 搜索
         result = CandidateList()
-        for user_id in candidates.user_ids:
-            if user_id not in self.user_emb:
-                continue
-            emb = self.user_emb[user_id]
-            scores = []
-            for item_id, iemb in self.item_emb.items():
-                sim = sum(a*b for a, b in zip(emb, iemb))
-                scores.append((item_id, sim))
-            scores.sort(key=lambda x: -x[1])
-            for item_id, score in scores[:self.top_k]:
-                result.add(user_id, Candidate(
-                    user_id=user_id, item_id=item_id,
-                    score=score, source=self.name,
-                ))
+
+        user_ids = [uid for uid in candidates.user_ids if uid in self._user_emb]
+        if not user_ids:
+            return result
+
+        query = np.array([self._user_emb[uid] for uid in user_ids], dtype=np.float32)
+
+        if self.index is not None:
+            import faiss
+            scores_mat, indices_mat = self.index.search(query, self.top_k)
+            for row_idx, uid in enumerate(user_ids):
+                for score, idx in zip(scores_mat[row_idx], indices_mat[row_idx]):
+                    item_id = self._index_item_ids[idx]
+                    result.add(uid, Candidate(
+                        user_id=uid, item_id=item_id,
+                        score=float(score), source=self.name,
+                    ))
+        else:
+            emb_matrix = self._fallback_embs
+            for row_idx, uid in enumerate(user_ids):
+                u = query[row_idx:row_idx + 1]
+                scores = emb_matrix @ u.T
+                topk = np.argpartition(scores[:, 0], -self.top_k)[-self.top_k:]
+                topk = topk[np.argsort(-scores[topk, 0])]
+                for idx in topk:
+                    item_id = self._index_item_ids[idx]
+                    result.add(uid, Candidate(
+                        user_id=uid, item_id=item_id,
+                        score=float(scores[idx, 0]), source=self.name,
+                    ))
+
         return result

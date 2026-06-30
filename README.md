@@ -134,9 +134,9 @@ item_id → Embedding → MLP → L2 Norm → item_emb
    → 初始实现让 `num_neg=200` 个负样本各自通过 MLP，每 epoch 耗时 7 分钟。  
    → **解决：** 预计算全量 item embedding 表 `all_i_mlp = model.item_mlp(model.item_emb.weight)`，负样本直接从表中索引，避免重复计算。训练从 7 分钟/epoch 降至 15 秒/epoch。
 
-3. **BatchNorm 不支持 3D 张量**  
-   → BPR 训练中负样本展成 (B, num_neg, D) 后传入 MLP 时 BatchNorm 报错。  
-   → **解决：** 预计算 embedding 表后只需索引，不再需要 3D 过 MLP。
+4. **MLP 在稀疏 CF 数据上反而降低效果**  
+   → DSSM 默认 MLP (64→128→64) 在 Amazon Beauty 上 Recall@10 = 0.002，去掉 MLP 后 Recall@10 = 0.069（提升 35x）。原因：MLP 的非线性变换破坏了 embedding 点积的线性可分性；稀疏数据下参数增多反而过拟合。  
+   → **解决：** 添加 `no_mlp=True` 选项退化为标准 BPR-MF，在稀疏 ID-CF 场景推荐使用。
 
 **Faiss 集成：**
 
@@ -148,6 +148,26 @@ scores, indices = index.search(query, top_k)  # ANN 搜索
 ```
 
 Faiss 为可选依赖，未安装时自动回退到 `np.argpartition` 暴力搜索（适合 item 数 < 10 万的小数据集）。
+
+**Amazon Beauty 真实数据实验结果：**
+
+```text
+数据集: Amazon Beauty 2014 (ratings_Beauty.csv)
+过滤:   5-core (rating ≥ 4)
+样本:   10,553 用户, 6,086 物品, 94,148 交互
+训练:   BPR loss, 50 epoch, batch=256, 随机负采样 100/pair
+切分:   per-user leave-one-out（最后一条为 target，其余为训练）
+评估:   排除用户历史已见物品
+
+训练时间 (CPU i7): ~14 分钟 (17s/epoch)
+```
+
+| 配置 | Recall@1 | Recall@5 | Recall@10 | Recall@20 | Recall@50 |
+|------|---------|---------|----------|----------|----------|
+| MLP (64→128→64) | 0.000 | 0.001 | 0.002 | 0.004 | 0.008 |
+| **纯 embedding (no MLP)** | **0.012** | **0.041** | **0.069** | **0.101** | **0.163** |
+
+> MLP 版本接近随机猜测，去掉 MLP 后 Recall 提升 10-20x。原因：稀疏 CF 数据上 MLP 的非线性变换损害了 embedding 点积的线性可分性。后续可在更丰富特征（用户序列/物品属性）上重新引入 MLP。
 
 ### 粗排阶段 (PreRank)
 
@@ -167,7 +187,10 @@ MMRReRank：最大边际相关性重排，平衡相关性与多样性。
 # 合成数据 smoke test（验证链路通断）
 python scripts/run_pipeline.py
 
-# 真实数据训练 DSSM 双塔 + Faiss 召回评估
+# 真实数据训练 DSSM + Faiss 召回评估（无 MLP 版本推荐）
+python scripts/train_dssm_beauty.py --epochs 50 --batch-size 256 --no-mlp
+
+# 对比 MLP 版本
 python scripts/train_dssm_beauty.py --epochs 50 --batch-size 256
 ```
 

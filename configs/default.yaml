@@ -47,7 +47,7 @@ pipeline:
     - rank
     - re_rank
   recall:
-    methods: [popularity, itemcf]
+    methods: [popularity, itemcf, dssm]
     top_k: 500
   pre_rank:
     keep_k: 200
@@ -57,6 +57,14 @@ pipeline:
   re_rank:
     keep_k: 50
     lambda: 0.5
+
+dssm:
+  num_users: 0          # 运行时从数据推断
+  mlp_dims: [128, 64]   # MLP 隐层维度
+  temperature: 0.05
+  epochs: 20
+  lr: 0.001
+  batch_size: 256
 
 eval:
   ks: [1, 5, 10, 20]

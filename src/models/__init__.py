@@ -6,6 +6,7 @@
     - tisasrec_cat: 带类别条件化偏置的 TiSASRec
     - sasrec_rote: SASRec + RoTE 时间嵌入
     - tisasrec_rote: TiSASRec + RoTE 时间嵌入（带消融支持）
+    - dssm: 双塔向量召回模型
 """
 
 import logging
@@ -17,6 +18,7 @@ from .tisasrec_cat import TiSASRecCat
 from .rote import RoTEEncoder
 from .sasrec_rote import SASRecRoTE
 from .tisasrec_rote import TiSASRecRoTE
+from .dssm import DSSM, DSSMDataset, collate_dssm, train_epoch_softmax, train_epoch_bpr
 
 __all__ = [
     'SASRec',
@@ -24,6 +26,7 @@ __all__ = [
     'TiSASRecCat',
     'SASRecRoTE',
     'TiSASRecRoTE',
+    'DSSM',
     'RoTEEncoder',
     'PointWiseFeedForward',
     'build_model',
@@ -39,6 +42,7 @@ _MODEL_REGISTRY = {
     'tisasrec_cat': TiSASRecCat,
     'sasrec_rote': SASRecRoTE,
     'tisasrec_rote': TiSASRecRoTE,
+    'dssm': DSSM,
 }
 
 
@@ -46,7 +50,7 @@ def build_model(name: str, num_items: int, config: Dict[str, Any]):
     """通过名称和配置参数构建模型。
 
     参数：
-        name: 模型名称键（如 'sasrec', 'tisasrec_rote'）。
+        name: 模型名称键（如 'sasrec', 'tisasrec_rote', 'dssm'）。
         num_items: 物品数量（不含填充索引 0）。
         config: 完整配置字典（内部读取 model 部分）。
 
@@ -57,6 +61,7 @@ def build_model(name: str, num_items: int, config: Dict[str, Any]):
         ValueError: 如果模型名称未知。
     """
     mc = config.get('model', {})
+    dc = config.get('dssm', {})
 
     if name not in _MODEL_REGISTRY:
         raise ValueError(
@@ -67,11 +72,20 @@ def build_model(name: str, num_items: int, config: Dict[str, Any]):
     kwargs = {
         'num_items': num_items,
         'hidden_dim': mc.get('hidden_dim', 64),
-        'num_layers': mc.get('num_layers', 2),
-        'num_heads': mc.get('num_heads', 1),
         'dropout': mc.get('dropout', 0.2),
-        'max_len': mc.get('max_len', 50),
     }
+
+    if name == 'dssm':
+        kwargs['num_users'] = dc.get('num_users', 0)
+        kwargs['mlp_dims'] = dc.get('mlp_dims', None)
+
+    # 序列模型参数
+    if name != 'dssm':
+        kwargs.update({
+            'num_layers': mc.get('num_layers', 2),
+            'num_heads': mc.get('num_heads', 1),
+            'max_len': mc.get('max_len', 50),
+        })
 
     # RoTE 特定参数（用于 sasrec_rote 和 tisasrec_rote）
     if name in ('sasrec_rote', 'tisasrec_rote'):
@@ -90,7 +104,7 @@ def build_model(name: str, num_items: int, config: Dict[str, Any]):
 
     model_class = _MODEL_REGISTRY[name]
     logger.info(
-        "Building model '%s' with hidden_dim=%d, num_layers=%d, max_len=%d",
-        name, kwargs['hidden_dim'], kwargs['num_layers'], kwargs['max_len'],
+        "Building model '%s' with hidden_dim=%d",
+        name, kwargs['hidden_dim'],
     )
     return model_class(**kwargs)
