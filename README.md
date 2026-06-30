@@ -8,13 +8,14 @@ RoTE-TimeRec 基于原 TimeGenRec 代码资产升级而来，保留 SASRec、TiS
 
 ## 项目定位
 
-RoTE-TimeRec 是三项目矩阵里的传统序列推荐主项目：
+RoTE-TimeRec 是项目矩阵里的传统序列推荐主项目（当前优先级 P1）：
 
-| 项目 | 角色 |
-|---|---|
-| RoTE-TimeRec | 时间建模、full-ranking 评估、评测可信度 |
-| MiniMind-IntentRec | LLM / MiniMind 蒸馏用户会话意图 |
-| Gryphon-lite | Semantic ID 生成式推荐与 item-level scoring 校准 |
+| 项目 | 角色 | 当前状态 |
+|------|------|---------|
+| 快手 LLM-Rec 挑战赛 | 真实工业数据比赛 + LLM4Rec 实战 | **P0（进行中）** |
+| RoTE-TimeRec | 时间建模、full-ranking 评估、评测可信度 | **P1（进行中）** |
+| MiniMind-IntentRec | LLM / MiniMind 蒸馏用户会话意图 | P2（8.1 后） |
+| Gryphon-lite | Semantic ID 生成式推荐（冻结） | P3（暂停） |
 
 这个项目不是推倒重写 TimeGenRec，而是在已有推荐系统底座上做可信升级。
 
@@ -23,7 +24,7 @@ RoTE-TimeRec 是三项目矩阵里的传统序列推荐主项目：
 - SASRec：自注意力序列推荐基线。
 - TiSASRec：相对时间间隔 attention bias。
 - TiSASRec-Cat：同类 / 跨类目条件时间偏置。
-- Popularity / ItemCF：召回基线。
+- Popularity / ItemCF / **DSSM**：召回基线（DSSM 双塔 + Faiss ANN 索引）。
 - Recall -> PreRank -> Rank -> ReRank：候选链路。
 - full-ranking / candidate-based：双评估协议。
 - bucket evaluation：按用户、物品、类目和时间切片分析。
@@ -73,6 +74,102 @@ RoTE-TimeRec 是三项目矩阵里的传统序列推荐主项目：
 - category-switch session 切片
 - bootstrap 置信区间
 - 平均延迟 / p95 延迟 / 显存占用
+
+## 多阶段推荐管道
+
+```
+数据 → 召回 (Recall) → 粗排 (PreRank) → 精排 (Rank) → 重排 (ReRank) → 推荐列表
+```
+
+当前管道实现了三路召回 + 粗排 + 排序 + 重排的完整链路。
+
+### 召回阶段 (Recall)
+
+召回层负责从全量物品库中快速筛选候选，当前支持三路召回：
+
+#### 1. PopularityRecall — 热门召回
+
+**原理：** 全局统计物品交互频次，按热度排序。所有用户返回相同的 Top-K 热门物品。适合冷启动用户兜底和 baseline 对照。
+
+**训练：** `fit()` 接收 `item_counts: Dict[int, int]`，按 value 降序排列保存 top_items。
+
+**评分：** `score = 1.0 / (rank + 1)`，排名越靠前得分越高。
+
+**特点：** 无个性化，O(1) 推理，命中率高但不具备区分度。
+
+#### 2. ItemCFRecall — 物品协同过滤
+
+**原理：** 利用用户历史交互序列，统计物品共现次数作为相似度。对用户历史中的每个物品，找到最相似的物品并累加分数。
+
+**训练：** `fit()` 接收 `item_sim: Dict[int, Dict[int, float]]` 相似矩阵。
+
+**评估：** predict() 遍历用户历史物品，在 sim_matrix 中查找相似物品，按累加分数取 Top-K。
+
+**当前简化：** 使用原始共现次数而非余弦归一化 `sim(i,j) = co_count / sqrt(count(i) * count(j))`，后续可升级。参见 [Day2 笔记](docs/Day2_召回基础_FunRec召回全景_结合RoTE-TimeRec.md) 中的余弦归一化版本。
+
+#### 3. DSSMRecall — 双塔向量召回
+
+**原理：** 双塔模型将 user 和 item 分别编码为固定维度的向量（经过 MLP 和 L2 归一化），通过向量点积衡量相关性，使用 Faiss 加速 Top-K 检索。
+
+```
+user_id → Embedding → MLP → L2 Norm → user_emb
+                                                → dot product → score
+item_id → Embedding → MLP → L2 Norm → item_emb
+```
+
+**训练方式对比：**
+
+| 方式 | Loss | 负样本策略 | 适用场景 | 速度 |
+|------|------|-----------|---------|------|
+| In-batch softmax | CrossEntropy | batch 内其他样本为负 | 密集信号、大 batch | 快 |
+| BPR pairwise | `-log σ(pos - neg)` | 显式采样 num_neg 个随机负样本 | 稀疏 CF 数据 | 中（需优化） |
+
+**遇到的问题与解决：**
+
+1. **in-batch softmax 在稀疏数据上效果差**  
+   → Amazon Beauty (94K 交互, 6K items) 上 Recall@50 = 0.0095，接近随机猜测。原因：稀疏 CF 中 batch 内其他用户的样本不能代表真实负分布。  
+   → **解决：** 增加 BPR pairwise loss + 显式随机负采样训练。
+
+2. **BPR 负样本多次前向导致训练极慢**  
+   → 初始实现让 `num_neg=200` 个负样本各自通过 MLP，每 epoch 耗时 7 分钟。  
+   → **解决：** 预计算全量 item embedding 表 `all_i_mlp = model.item_mlp(model.item_emb.weight)`，负样本直接从表中索引，避免重复计算。训练从 7 分钟/epoch 降至 15 秒/epoch。
+
+3. **BatchNorm 不支持 3D 张量**  
+   → BPR 训练中负样本展成 (B, num_neg, D) 后传入 MLP 时 BatchNorm 报错。  
+   → **解决：** 预计算 embedding 表后只需索引，不再需要 3D 过 MLP。
+
+**Faiss 集成：**
+
+```python
+import faiss
+index = faiss.IndexFlatIP(dim)    # 最大内积搜索
+index.add(item_emb_matrix)        # 建索引
+scores, indices = index.search(query, top_k)  # ANN 搜索
+```
+
+Faiss 为可选依赖，未安装时自动回退到 `np.argpartition` 暴力搜索（适合 item 数 < 10 万的小数据集）。
+
+### 粗排阶段 (PreRank)
+
+SimplePreRank：多路召回合并后，按分数截断到 keep_k，减轻排序压力。
+
+### 精排阶段 (Rank)
+
+SequenceRanker：加载 SASRec/TiSASRec/RoTE 等序列模型，对候选物品打分排序。
+
+### 重排阶段 (ReRank)
+
+MMRReRank：最大边际相关性重排，平衡相关性与多样性。
+
+### 管道运行
+
+```bash
+# 合成数据 smoke test（验证链路通断）
+python scripts/run_pipeline.py
+
+# 真实数据训练 DSSM 双塔 + Faiss 召回评估
+python scripts/train_dssm_beauty.py --epochs 50 --batch-size 256
+```
 
 ## 当前边界与必须补的实验
 
@@ -128,7 +225,7 @@ python scripts/train_model.py --model tisasrec_rote --split no_sss --epochs 3
 python scripts/train_model.py --model tisasrec_rote --split sliding_window_sss --epochs 3
 python scripts/train_model.py --model tisasrec_rote --split prefix_target_sss --epochs 3
 
-# 运行多阶段召回-排序管道
+# 运行多阶段召回-排序管道（含 DSSM 双塔向量召回 + Faiss ANN 搜索）
 python scripts/run_pipeline.py
 
 # 运行 SSS Audit（跨 split 协议对比）
@@ -223,6 +320,68 @@ TiSASRec + RoTE 支持消融开关（`configs/default.yaml`）：
 
 评估协议要固定，不要每个模型用不同口径。推荐最终评估统一使用留一目标和 full-ranking 评估；SSS audit 的作用是暴露不同训练样本构造带来的指标偏差，而不是把四种 split 都当成主结果表。
 
+## 周计划（7 月 × 快手比赛并行）
+
+### 双项目并行节奏
+
+```
+周一           周二           周三           周四           周五           周末
+快手(编码/分析)  RoTE(训练日)   快手(编码/分析)  RoTE(训练日)   快手(编码)     补充/复盘
+力扣(1道)       力扣(1道)      力扣(1道)      力扣(1道)      力扣(1道)
+```
+
+**训练日（周二/周四）**：不安排学习任务，只跑 GPU 训练、改代码、看实验日志。
+
+### 第 1 周：基建 + 首次提交
+
+| 天 | RoTE-TimeRec | 快手比赛 | 力扣 |
+|---|-------------|---------|------|
+| 周一 | — | 报名、读赛题、跑通 baseline 提交 | 1 道 medium |
+| **周二** | **Beauty × SASRec 训练（验证代码正常）** | — | 1 道 medium |
+| 周三 | 结果整理 | 分析 baseline、拆数据字段 | 1 道 medium |
+| **周四** | **Beauty × TiSASRec / TiSASRec-Cat / SASRec+RoTE / TiSASRec+RoTE** | — | 1 道 medium |
+| 周五 | — | 第一次有效优化提交 | 1 道 medium |
+| 周末 | 结果汇总、SSS audit 小跑 | 记录实验、分析提交反馈 | 复习 |
+
+### 第 2 周：主结果 + 比赛优化
+
+| 天 | RoTE-TimeRec | 快手比赛 | 力扣 |
+|---|-------------|---------|------|
+| 周一 | — | 深入 baseline，找优化点 | 1 道 medium |
+| **周二** | **Sports × 全部模型 + 1 seed** | — | 1 道 medium |
+| 周三 | 结果整理 | 第二次有效提交 | 1 道 medium |
+| **周四** | **SSS audit（选 1 代表模型跑 4 种 split）** | — | 1 道 medium |
+| 周五 | — | 优化提交 | 1 道 medium |
+| 周末 | 结果汇总 | 实验记录整理 | 复习 |
+
+### 第 3 周：hard slice + 冲刺
+
+| 天 | RoTE-TimeRec | 快手比赛 | 力扣 |
+|---|-------------|---------|------|
+| 周一 | — | 优化提交 | 1 道 medium |
+| **周二** | **Beauty × hard slice（全部模型）** | — | 1 道 medium |
+| 周三 | 结果整理 | 优化提交 | 1 道 medium |
+| **周四** | **Sports × hard slice** | — | 1 道 medium |
+| 周五 | — | 最终冲刺提交 | 1 道 medium |
+| 周末 | 所有结果汇总、表格化 | 比赛复盘 | 复习 |
+
+### 第 4 周：简历 + README
+
+| 天 | 任务 |
+|---|------|
+| 周一–二 | RoTE-TimeRec 实验报告整理、README 结果表填充 |
+| 周三–四 | 简历撰写（突出快手 + RoTE + MiniMind 三条线） |
+| 周五–周末 | 投递、复盘 |
+
+### Kill Switch
+
+| 时间 | 必须达到 | 否则 |
+|------|---------|------|
+| 第 7 天 | RoTE baseline 跑通 + 快手至少一次有效提交 | — |
+| 第 14 天 | RoTE 有全部模型主结果；快手有至少一次优化 | MiniMind 降级为阅读 |
+| 第 21 天 | RoTE 有 SSS audit + hard slice | 不再新增实验，只整理现有结果 |
+| 8/1 | 快手 + RoTE 可写入简历 | 投递不等人 |
+
 ## 范围
 
-当前阶段聚焦离线训练、离线评估和可复现实验，不包含在线 serving、分布式训练和 Faiss 向量召回。
+当前阶段聚焦离线训练、离线评估和可复现实验，不包含在线 serving 和分布式训练。
